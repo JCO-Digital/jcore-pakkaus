@@ -3,7 +3,7 @@ Tags: video, compression, ffmpeg, optimization, media
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,5 +30,12 @@ The optimizer service is a separate Docker container (see the project README).
 
 == Changelog ==
 
-= 1.0.0 =
-* Initial release.
+= 1.0.1 (2026-10-02) =
+
+* Fix: plugin - require CRF of at least 1 for H.264
+* Fix: service - enforce download timeout and only expire finished jobs
+* CI: github - add foonver release pipeline
+
+= v1.0.0 (2026-10-02) =
+
+* Add WordPress video optimizer plugin and FFmpeg optimizer service
