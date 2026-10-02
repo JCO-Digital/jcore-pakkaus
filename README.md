@@ -44,7 +44,8 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
    - **Build pack:** `Docker Compose`
    - **Base directory:** `/optimizer-service`
    - **Docker Compose location:** `/docker-compose.yml`
-3. **Environment variables:** set `API_TOKEN` to a long random secret:
+3. **Environment variables:** set `OPTIMIZER_API_TOKEN` to a long random secret (the compose
+   file passes it to the container as `API_TOKEN`):
    ```sh
    openssl rand -hex 32
    ```
@@ -59,7 +60,7 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 
 | Variable | Default | Description |
 |---|---|---|
-| `API_TOKEN` | **required** | Bearer token clients must send (min. 24 characters). |
+| `API_TOKEN` | **required** | Bearer token clients must send (min. 24 characters). In the compose file / Coolify it is set via `OPTIMIZER_API_TOKEN`. |
 | `WORKERS` | `1` | Videos transcoded in parallel. Each FFmpeg uses all cores, so 1–2 is usually right. |
 | `FFMPEG_THREADS` | `0` | Threads per FFmpeg (0 = auto). Lower it if you raise `WORKERS`. |
 | `MAX_INPUT_MB` | `4096` | Reject sources larger than this. |
