@@ -91,7 +91,11 @@ class Store:
         return {row[0] for row in self._query("SELECT id FROM jobs")}
 
     def expired_job_ids(self, older_than: float) -> list[str]:
-        return [row[0] for row in self._query("SELECT id FROM jobs WHERE updated_at < ?", (older_than,))]
+        marks = ", ".join("?" for _ in TERMINAL_STATUSES)
+        return [row[0] for row in self._query(
+            f"SELECT id FROM jobs WHERE updated_at < ? AND status IN ({marks})",
+            (older_than, *TERMINAL_STATUSES),
+        )]
 
     def job_counts(self) -> dict[str, int]:
         return {row[0]: row[1] for row in self._query("SELECT status, COUNT(*) FROM jobs GROUP BY status")}

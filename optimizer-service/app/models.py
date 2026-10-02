@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 Preset = Literal[
     "ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"
@@ -24,6 +24,12 @@ class JobOptions(BaseModel):
     min_savings_percent: float = Field(
         5, ge=0, le=100, description="Skip the result unless it is at least this much smaller than the source."
     )
+
+    @model_validator(mode="after")
+    def validate_crf(self) -> JobOptions:
+        if self.codec == "h264" and self.crf == 0:
+            raise ValueError("H.264 CRF must be at least 1; High profile does not support lossless encoding")
+        return self
 
 
 class JobCreate(BaseModel):

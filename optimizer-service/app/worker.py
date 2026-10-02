@@ -129,10 +129,10 @@ class JobRunner:
         src = workdir / "input"
         tmp = workdir / "output.part.mp4"
         dst = self.output_path(job_id)
-        opts = JobOptions(**job["options"])
         started = time.monotonic()
 
         try:
+            opts = JobOptions(**job["options"])
             self.store.update_job(job_id, status="downloading", progress=0)
             log.info("Job %s: downloading %s", job_id, job["source_url"])
             await self._download(job_id, job["source_url"], src)
@@ -179,7 +179,7 @@ class JobRunner:
             log.info("Job %s: cancelled", job_id)
             shutil.rmtree(workdir, ignore_errors=True)
             return
-        except (JobError, FFmpegError, httpx.HTTPError, OSError) as exc:
+        except (JobError, FFmpegError, httpx.HTTPError, OSError, ValueError) as exc:
             if job_id in self._cancelled:
                 log.info("Job %s: cancelled", job_id)
                 shutil.rmtree(workdir, ignore_errors=True)
@@ -196,23 +196,25 @@ class JobRunner:
 
     async def _download(self, job_id: str, url: str, dest: Path) -> None:
         limit = self.settings.max_input_bytes
-        deadline = time.monotonic() + self.settings.download_timeout
-        async with self._http.stream("GET", url) as resp:
-            if resp.status_code != 200:
-                raise JobError(f"Downloading the source failed with HTTP {resp.status_code}")
-            length = resp.headers.get("content-length")
-            if length and length.isdigit() and int(length) > limit:
-                raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
-            total = 0
-            with dest.open("wb") as fh:
-                async for chunk in resp.aiter_raw(1024 * 1024):
-                    total += len(chunk)
-                    if total > limit:
+        total = 0
+        try:
+            async with asyncio.timeout(self.settings.download_timeout):
+                self._check_cancel(job_id)
+                async with self._http.stream("GET", url) as resp:
+                    if resp.status_code != 200:
+                        raise JobError(f"Downloading the source failed with HTTP {resp.status_code}")
+                    length = resp.headers.get("content-length")
+                    if length and length.isdigit() and int(length) > limit:
                         raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
-                    if time.monotonic() > deadline:
-                        raise JobError("Downloading the source timed out")
-                    self._check_cancel(job_id)
-                    fh.write(chunk)
+                    with dest.open("wb") as fh:
+                        async for chunk in resp.aiter_raw():
+                            total += len(chunk)
+                            if total > limit:
+                                raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
+                            self._check_cancel(job_id)
+                            fh.write(chunk)
+        except TimeoutError as exc:
+            raise JobError("Downloading the source timed out") from exc
         if total == 0:
             raise JobError("Downloaded source file is empty")
 
