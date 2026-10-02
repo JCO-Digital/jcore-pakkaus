@@ -248,26 +248,41 @@ class Vopt_Processor {
 	 * @param int $id Attachment ID.
 	 */
 	public static function refresh( $id ) {
-		$status = self::status( $id );
-
-		if ( 'pending' === $status ) {
-			self::submit( $id );
+		if ( ! self::lock( $id ) ) {
 			return;
 		}
-		if ( ! in_array( $status, array( 'queued', 'processing' ), true ) ) {
-			return;
+		try {
+			wp_cache_delete( $id, 'post_meta' );
+			$status = self::status( $id );
+			if ( ! in_array( $status, self::ACTIVE_STATUSES, true ) ) {
+				return;
+			}
+			// Advance every attempt, including network failures, so later jobs get polled.
+			update_post_meta( $id, self::META_UPDATED, microtime( true ) );
+			if ( 'pending' === $status ) {
+				self::submit( $id );
+				return;
+			}
+			$job_id = get_post_meta( $id, self::META_JOB, true );
+			if ( ! $job_id ) {
+				self::set_state( $id, 'failed', array( 'message' => __( 'Lost track of the optimization job.', 'video-optimizer' ) ) );
+				return;
+			}
+		} finally {
+			self::unlock( $id );
 		}
 
-		$job_id = get_post_meta( $id, self::META_JOB, true );
-		if ( ! $job_id ) {
-			self::set_state( $id, 'failed', array( 'message' => __( 'Lost track of the optimization job.', 'video-optimizer' ) ) );
-			return;
-		}
-
+		// Fetch outside the mutex; applying the response checks the current job again.
 		$job = Vopt_Client::get_job( $job_id );
 		if ( is_wp_error( $job ) ) {
-			if ( 'vopt_http_404' === $job->get_error_code() ) {
-				self::set_state( $id, 'failed', array( 'message' => __( 'The optimization job no longer exists on the service.', 'video-optimizer' ) ) );
+			if ( 'vopt_http_404' === $job->get_error_code() && self::lock( $id ) ) {
+				try {
+					if ( self::is_current_job( $id, array( 'id' => $job_id ) ) ) {
+						self::set_state( $id, 'failed', array( 'message' => __( 'The optimization job no longer exists on the service.', 'video-optimizer' ) ) );
+					}
+				} finally {
+					self::unlock( $id );
+				}
 			}
 			return; // Otherwise a transient error; try again next poll.
 		}
@@ -282,6 +297,43 @@ class Vopt_Processor {
 	 * @param array $job Job from the service.
 	 */
 	public static function apply_job( $id, $job ) {
+		if ( 'completed' === $job['status'] ) {
+			self::finalize( $id, $job );
+			return;
+		}
+		if ( ! self::lock( $id ) ) {
+			return;
+		}
+		try {
+			if ( self::is_current_job( $id, $job ) ) {
+				self::apply_job_state( $id, $job );
+			}
+		} finally {
+			self::unlock( $id );
+		}
+	}
+
+	/**
+	 * Check fresh attachment state while holding its mutex.
+	 *
+	 * @param int   $id  Attachment ID.
+	 * @param array $job Job from the service.
+	 * @return bool
+	 */
+	private static function is_current_job( $id, $job ) {
+		wp_cache_delete( $id, 'post_meta' );
+		$job_id = get_post_meta( $id, self::META_JOB, true );
+		return $job_id && isset( $job['id'] ) && $job_id === $job['id']
+			&& in_array( self::status( $id ), array( 'queued', 'processing' ), true );
+	}
+
+	/**
+	 * Apply a non-completed state while already holding the attachment mutex.
+	 *
+	 * @param int   $id  Attachment ID.
+	 * @param array $job Job from the service.
+	 */
+	private static function apply_job_state( $id, $job ) {
 		$message = isset( $job['message'] ) ? (string) $job['message'] : '';
 
 		switch ( $job['status'] ) {
@@ -292,10 +344,6 @@ class Vopt_Processor {
 			case 'downloading':
 			case 'processing':
 				self::set_state( $id, 'processing', array( 'progress' => (float) $job['progress'] ) );
-				break;
-
-			case 'completed':
-				self::finalize( $id, $job );
 				break;
 
 			case 'skipped':
@@ -332,15 +380,25 @@ class Vopt_Processor {
 		}
 
 		// Downloading the result can take a while; don't make the service wait for it.
-		self::set_state(
-			$id,
-			'processing',
-			array(
-				'progress' => 100,
-				'message'  => __( 'Downloading the optimized file…', 'video-optimizer' ),
-			)
-		);
-		wp_schedule_single_event( time(), self::CRON_FINALIZE, array( (int) $id ) );
+		if ( ! self::lock( $id ) ) {
+			return;
+		}
+		try {
+			if ( ! self::is_current_job( $id, $job ) ) {
+				return;
+			}
+			self::set_state(
+				$id,
+				'processing',
+				array(
+					'progress' => 100,
+					'message'  => __( 'Downloading the optimized file…', 'video-optimizer' ),
+				)
+			);
+			wp_schedule_single_event( time(), self::CRON_FINALIZE, array( (int) $id ) );
+		} finally {
+			self::unlock( $id );
+		}
 
 		if ( function_exists( 'fastcgi_finish_request' ) ) {
 			add_action(
@@ -369,6 +427,7 @@ class Vopt_Processor {
 		}
 
 		try {
+			wp_cache_delete( $id, 'post_meta' );
 			if ( ! in_array( self::status( $id ), array( 'queued', 'processing' ), true ) ) {
 				return null;
 			}
@@ -385,7 +444,7 @@ class Vopt_Processor {
 				return null;
 			}
 			if ( 'completed' !== $job['status'] ) {
-				self::apply_job( $id, $job );
+				self::apply_job_state( $id, $job );
 				return null;
 			}
 
