@@ -1,0 +1,91 @@
+name: Release
+
+# Every push to main is versioned by foonver from the conventional commits since the last tag
+# (feat → minor, fix/chore/... → patch, ! / BREAKING CHANGE → major). It syncs the version into the
+# plugin header, VOPT_VERSION, readme.txt and the service, writes the changelog to readme.txt,
+# commits and tags vX.Y.Z, and the deploy job publishes the plugin zip as a GitHub release.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    name: Lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "7.4"
+          coverage: none
+
+      - name: Lint PHP (minimum supported version)
+        run: find wordpress-plugin -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compile service
+        run: python -m compileall -q optimizer-service/app
+
+      - name: Build service image
+        run: docker build -t video-optimizer-service:ci optimizer-service
+
+  release:
+    name: Bump version
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      is_bumped: ${{ steps.foonver.outputs.is_bumped }}
+      version: ${{ steps.foonver.outputs.version }}
+      release_notes: ${{ steps.foonver.outputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run foonver
+        id: foonver
+        uses: foonly/foonver@v1.2.0
+        with:
+          version: v1.2.0
+          command: "auto"
+          version_file: "version.txt"
+          changelog: "true"
+          version_sync: "wordpress-plugin/video-optimizer/video-optimizer.php,wordpress-plugin/video-optimizer/readme.txt,optimizer-service/app/__init__.py"
+          push: "true"
+          commit_suffix: "[skip ci]"
+
+  deploy:
+    name: Publish release
+    needs: release
+    if: needs.release.outputs.is_bumped == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - name: Build plugin ZIP
+        run: |
+          cd wordpress-plugin
+          zip -qr ../video-optimizer.zip video-optimizer -x '*.DS_Store'
+          unzip -l ../video-optimizer.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.version }}
+          name: Video Optimizer ${{ needs.release.outputs.version }}
+          body: ${{ needs.release.outputs.release_notes }}
+          files: video-optimizer.zip

@@ -93,8 +93,9 @@ The plugin generates a fresh `callback_secret` for every job.
 
 ## 2. Install the WordPress plugin
 
-1. Upload `dist/video-optimizer.zip` under **Plugins → Add New → Upload Plugin** (or copy
-   `wordpress-plugin/video-optimizer` to `wp-content/plugins/`) and activate it.
+1. Download `video-optimizer.zip` from the [latest release](../../releases/latest), upload it under
+   **Plugins → Add New → Upload Plugin** (or copy `wordpress-plugin/video-optimizer` to
+   `wp-content/plugins/`) and activate it.
 2. Go to **Settings → Video Optimizer**, enter the service URL and API token, save, and click
    **Test connection**.
 
@@ -139,6 +140,25 @@ wp video-optimizer restore 123          # restore a backed-up original
 | `vopt_url_changed( string $old, string $new, int[] $post_ids )` | action | After URLs in content were rewritten |
 
 ---
+
+## Versioning and releases
+
+Versioning is handled by [foonver](https://github.com/foonly/foonver) (same setup as the SuperQuest
+plugin) via the [`Release`](.github/workflows/release.yml) workflow. On every push to `main` it:
+
+1. lints the PHP (7.4) and builds the service image,
+2. computes the next version from the [conventional commits](https://www.conventionalcommits.org/)
+   since the last tag — `feat:` → minor, `fix:`/`chore:`/`docs:`/… → patch, `feat!:` or
+   `BREAKING CHANGE:` → major,
+3. writes it to `version.txt` and syncs it into the plugin header, `VOPT_VERSION`, `readme.txt`'s
+   `Stable tag` and the service's `__version__`, regenerates the `== Changelog ==` section of
+   `readme.txt`, then commits (`[skip ci]`) and tags `vX.Y.Z`,
+4. publishes a GitHub release with `video-optimizer.zip` and the release notes.
+
+So: write conventional commit messages (e.g. `feat(plugin): add poster image generation`,
+`fix(service): handle videos without audio`), and never bump versions by hand.
+Configuration lives in [`.foonver.toml`](.foonver.toml); preview the next version locally with
+`foonver auto --dry-run`.
 
 ## Local development
 
