@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Video Optimizer
  * Description:       Automatically optimizes uploaded videos (H.264/H.265 MP4, downscaling, HDR to SDR) using a self-hosted FFmpeg optimizer service.
- * Version:           1.0.3
+ * Version:           1.0.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * License:           GPL-2.0-or-later
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VOPT_VERSION', '1.0.3' );
+define( 'VOPT_VERSION', '1.0.4' );
 define( 'VOPT_FILE', __FILE__ );
 define( 'VOPT_DIR', plugin_dir_path( __FILE__ ) );
 
