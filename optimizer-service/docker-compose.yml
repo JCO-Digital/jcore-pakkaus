@@ -1,0 +1,29 @@
+# Coolify: create a "Docker Compose" resource pointing at this directory (base directory
+# /optimizer-service), set API_TOKEN in the Environment Variables tab, and assign a domain to
+# the `optimizer` service with port 8000, e.g. https://video-optimizer.example.com:8000
+services:
+  optimizer:
+    build: .
+    restart: unless-stopped
+    environment:
+      - API_TOKEN=${API_TOKEN}
+      - WORKERS=${WORKERS:-1}
+      - FFMPEG_THREADS=${FFMPEG_THREADS:-0}
+      - MAX_INPUT_MB=${MAX_INPUT_MB:-4096}
+      - JOB_TIMEOUT_SECONDS=${JOB_TIMEOUT_SECONDS:-14400}
+      - JOB_TTL_HOURS=${JOB_TTL_HOURS:-24}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - optimizer-data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  optimizer-data:

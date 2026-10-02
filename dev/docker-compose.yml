@@ -1,0 +1,61 @@
+# Local end-to-end test stack: WordPress + MariaDB + optimizer service.
+#   docker compose up -d --build && ./setup.sh
+# WordPress: http://localhost:8080 (admin / admin). Optimizer: http://localhost:8000/docs
+name: video-optimizer-dev
+
+x-wp-env: &wp-env
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: wordpress
+  WORDPRESS_DB_NAME: wordpress
+  WORDPRESS_CONFIG_EXTRA: |
+    define( 'VIDEO_OPTIMIZER_SERVICE_URL', 'http://optimizer:8000' );
+    define( 'VIDEO_OPTIMIZER_API_TOKEN', 'dev-token-0123456789abcdefghijklmnop' );
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - db:/var/lib/mysql
+
+  wordpress:
+    image: wordpress:php8.3-apache
+    depends_on: [db]
+    ports:
+      - "8080:80"
+    environment: *wp-env
+    volumes:
+      - wp:/var/www/html
+      - ../wordpress-plugin/video-optimizer:/var/www/html/wp-content/plugins/video-optimizer:ro
+
+  wpcli:
+    image: wordpress:cli-php8.3
+    profiles: [cli]
+    user: "33:33"
+    depends_on: [db]
+    environment: *wp-env
+    volumes:
+      - wp:/var/www/html
+      - ../wordpress-plugin/video-optimizer:/var/www/html/wp-content/plugins/video-optimizer:ro
+      - ./samples:/samples:ro
+
+  optimizer:
+    build: ../optimizer-service
+    ports:
+      - "8000:8000"
+    environment:
+      API_TOKEN: dev-token-0123456789abcdefghijklmnop
+      WORKERS: 2
+      LOG_LEVEL: info
+    volumes:
+      - optimizer:/data
+
+volumes:
+  db:
+  wp:
+  optimizer:
