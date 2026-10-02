@@ -26,12 +26,21 @@ jobs:
       - name: Lint PHP (minimum supported version)
         run: find wordpress-plugin -name '*.php' -print0 | xargs -0 -n1 php -l
 
+      - name: Test plugin lifecycle
+        run: php tests/test_plugin.php
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Compile service
         run: python -m compileall -q optimizer-service/app
+
+      - name: Install service dependencies
+        run: python -m pip install -r optimizer-service/requirements.txt
+
+      - name: Test service lifecycle
+        run: python -m unittest discover -s tests -v
 
       - name: Build service image
         run: docker build -t video-optimizer-service:ci optimizer-service
