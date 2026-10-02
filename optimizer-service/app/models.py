@@ -11,7 +11,10 @@ Preset = Literal[
 
 class JobOptions(BaseModel):
     codec: Literal["h264", "h265"] = "h264"
-    crf: int = Field(23, ge=0, le=51, description="Constant rate factor. Lower = better quality, bigger file.")
+    crf: int = Field(
+        23, ge=0, le=51,
+        description="Constant rate factor. Lower = better quality, bigger file. H.264 requires at least 1.",
+    )
     preset: Preset = "medium"
     max_resolution: int = Field(
         1080, ge=0, le=4320, description="Limit for the shorter side in pixels (1080 = 1080p). 0 keeps the source size."
