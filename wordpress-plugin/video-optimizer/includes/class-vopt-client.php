@@ -137,14 +137,14 @@ class Vopt_Client {
 
 		if ( is_wp_error( $response ) ) {
 			wp_delete_file( $dest );
-			return $response;
+			return new WP_Error( 'vopt_download_retry', $response->get_error_message(), $response->get_error_data() );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $code ) {
 			wp_delete_file( $dest );
 			return new WP_Error(
-				'vopt_download_failed',
+				$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'vopt_download_retry' : 'vopt_download_failed',
 				/* translators: %d: HTTP status code */
 				sprintf( __( 'Downloading the optimized video failed with HTTP %d.', 'video-optimizer' ), $code )
 			);

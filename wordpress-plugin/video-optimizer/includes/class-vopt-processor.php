@@ -454,6 +454,19 @@ class Vopt_Processor {
 
 			$result = self::replace_file( $id, $job );
 			if ( is_wp_error( $result ) ) {
+				if ( 'vopt_download_retry' === $result->get_error_code() ) {
+					self::set_state(
+						$id,
+						'processing',
+						array(
+							'progress' => 100,
+							/* translators: %s: error message */
+							'message' => sprintf( __( 'Could not download the optimized video, will retry: %s', 'video-optimizer' ), $result->get_error_message() ),
+						)
+					);
+					self::ensure_polling();
+					return $result;
+				}
 				self::set_state( $id, 'failed', array( 'message' => $result->get_error_message() ) );
 				self::forget_job( $id );
 				return $result;
@@ -516,7 +529,7 @@ class Vopt_Processor {
 		$expected = isset( $job['output']['size'] ) ? (int) $job['output']['size'] : 0;
 		if ( ( $expected && $size !== $expected ) || ! self::looks_like_mp4( $tmp ) ) {
 			wp_delete_file( $tmp );
-			return new WP_Error( 'vopt_bad_download', __( 'The downloaded file is incomplete or not an MP4.', 'video-optimizer' ) );
+			return new WP_Error( 'vopt_download_retry', __( 'The downloaded file is incomplete or not an MP4.', 'video-optimizer' ) );
 		}
 
 		$same_path = 'mp4' === strtolower( $extension );
