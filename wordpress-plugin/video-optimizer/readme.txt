@@ -3,7 +3,7 @@ Tags: video, compression, ffmpeg, optimization, media
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,7 +30,14 @@ The optimizer service is a separate Docker container (see the project README).
 
 == Changelog ==
 
-= 1.0.2 (2026-10-02) =
+= 1.0.3 (2026-10-02) =
+
+* Fix: plugin - keep saved H.264 CRF within the valid range
+* Fix: plugin - retry transient result download failures
+* Fix: plugin - serialize job state changes per attachment
+* Test: add plugin and service regression suites and run them in CI
+
+= v1.0.2 (2026-10-02) =
 
 * Fix: deploy - require API_TOKEN in the compose file
 
