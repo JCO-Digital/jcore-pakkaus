@@ -136,7 +136,7 @@ class Vopt_Admin {
 						<th scope="row"><label for="vopt-crf"><?php esc_html_e( 'Quality (CRF)', 'video-optimizer' ); ?></label></th>
 						<td>
 							<input type="number" id="vopt-crf" min="0" max="51" class="small-text" name="<?php echo esc_attr( $name ); ?>[crf]" value="<?php echo esc_attr( $s['crf'] ); ?>">
-							<p class="description"><?php esc_html_e( 'Lower is better quality and larger files. 20–23 is visually transparent for H.264, 26–28 is a good web default. For H.265 use about 4–6 higher for the same quality.', 'video-optimizer' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Lower is better quality and larger files. H.264 requires at least 1. 20–23 is visually transparent for H.264, 26–28 is a good web default. For H.265 use about 4–6 higher for the same quality.', 'video-optimizer' ); ?></p>
 						</td>
 					</tr>
 					<tr>

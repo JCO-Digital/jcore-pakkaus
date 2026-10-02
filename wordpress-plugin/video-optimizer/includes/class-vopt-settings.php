@@ -149,7 +149,7 @@ class Vopt_Settings {
 		$resolution              = isset( $input['max_resolution'] ) ? (int) $input['max_resolution'] : $defaults['max_resolution'];
 		$clean['max_resolution'] = in_array( $resolution, self::RESOLUTIONS, true ) ? $resolution : $defaults['max_resolution'];
 
-		$clean['crf']                 = self::clamp( $input, 'crf', 0, 51, $current['crf'] );
+		$clean['crf']                 = self::clamp( $input, 'crf', 'h264' === $clean['codec'] ? 1 : 0, 51, $current['crf'] );
 		$clean['max_fps']             = self::clamp( $input, 'max_fps', 0, 240, $current['max_fps'] );
 		$clean['audio_bitrate']       = self::clamp( $input, 'audio_bitrate', 32, 512, $current['audio_bitrate'] );
 		$clean['min_savings_percent'] = self::clamp( $input, 'min_savings_percent', 0, 100, $current['min_savings_percent'] );
