@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       JCORE Pakkaus
- * Plugin URI:        https://github.com/JCO-Digital/video-optimizer
+ * Plugin URI:        https://github.com/JCO-Digital/jcore-pakkaus
  * Description:       Optimizes uploaded videos (H.264/H.265 MP4, downscaling, HDR to SDR) with a self-hosted FFmpeg optimizer service.
  * Version:           1.0.4
  * Requires at least: 6.7

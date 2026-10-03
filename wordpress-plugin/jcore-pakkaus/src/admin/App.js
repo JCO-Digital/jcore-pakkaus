@@ -86,7 +86,7 @@ export default function App() {
 						<Icon icon={ video } size={ 28 } />
 					</span>
 					<div>
-						<h1>{ __( 'Video Optimizer', 'jcore-pakkaus' ) }</h1>
+						<h1>{ __( 'JCORE Pakkaus', 'jcore-pakkaus' ) }</h1>
 						<p className="jcore-pakkaus__tagline">
 							{ __(
 								'Smaller, faster-loading videos, straight from the media library.',
@@ -106,7 +106,7 @@ export default function App() {
 			<div
 				className="jcore-pakkaus__tabs"
 				role="tablist"
-				aria-label={ __( 'Video Optimizer sections', 'jcore-pakkaus' ) }
+				aria-label={ __( 'JCORE Pakkaus sections', 'jcore-pakkaus' ) }
 			>
 				{ TABS.map( ( { name, title } ) => (
 					<button

@@ -1,4 +1,4 @@
-# Video Optimizer
+# JCORE Pakkaus
 
 Automatic video optimization for WordPress, powered by a self-hosted FFmpeg service.
 
@@ -50,8 +50,8 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
    openssl rand -hex 32
    ```
 4. **Domains:** set the domain for the `optimizer` service with port 8000, e.g.
-   `https://video-optimizer.example.com:8000` (Coolify proxies HTTPS on 443 → container port 8000).
-5. Deploy. `https://video-optimizer.example.com/health` should return `{"status":"ok",...}`.
+   `https://pakkaus.example.com:8000` (Coolify proxies HTTPS on 443 → container port 8000).
+5. Deploy. `https://pakkaus.example.com/health` should return `{"status":"ok",...}`.
 
 > Alternatively use the **Dockerfile** build pack with base directory `/optimizer-service`, port `8000`,
 > and add a persistent storage volume mounted at `/data`.
@@ -86,8 +86,9 @@ All endpoints except `/health` require `Authorization: Bearer <API_TOKEN>`. Inte
 | `GET` | `/jobs/{id}/output` | Download the optimized MP4 |
 | `DELETE` | `/jobs/{id}` | Cancel / delete a job and its files |
 
-Callbacks are `POST`ed as JSON `{event, job}` with the headers `X-Video-Optimizer-Timestamp` and
-`X-Video-Optimizer-Signature: sha256=HMAC_SHA256(callback_secret, "<timestamp>.<body>")`.
+Callbacks are `POST`ed as JSON `{event, job}` with the headers `X-Jcore-Pakkaus-Timestamp` and
+`X-Jcore-Pakkaus-Signature: sha256=HMAC_SHA256(callback_secret, "<timestamp>.<body>")`. The same values are
+also sent as `X-Video-Optimizer-Timestamp` / `X-Video-Optimizer-Signature` for the stand-alone Video Optimizer plugin.
 The plugin generates a fresh `callback_secret` for every job.
 
 ---
@@ -99,13 +100,13 @@ and updates itself through `update.jcore.fi` like the other JCORE plugins.
 
 1. Download `jcore-pakkaus.zip` from the [latest release](../../releases/latest), upload it under
    **Plugins → Add New → Upload Plugin** and activate it.
-2. Go to **Settings → Video Optimizer → Settings**, enter the service URL and API token, and click
+2. Go to **Settings → JCORE Pakkaus → Settings**, enter the service URL and API token, and click
    **Save and test**.
 
 You can also put the connection details in `wp-config.php` (the fields are then locked):
 
 ```php
-define( 'JCORE_PAKKAUS_SERVICE_URL', 'https://video-optimizer.example.com' );
+define( 'JCORE_PAKKAUS_SERVICE_URL', 'https://pakkaus.example.com' );
 define( 'JCORE_PAKKAUS_API_TOKEN', '...' );
 ```
 
@@ -119,7 +120,7 @@ working. Delete the old plugin afterwards.
 ### Using it
 
 - New video uploads are optimized automatically (can be turned off; small files can be skipped).
-- **Settings → Video Optimizer** shows the library at a glance (videos, optimized share, space saved,
+- **Settings → JCORE Pakkaus** shows the library at a glance (videos, optimized share, space saved,
   running jobs), every video with its status, sizes and actions, and an *Optimize all* button for videos
   uploaded before the plugin was set up. Running jobs update live.
 - **Media → Library (list view)** shows an *Optimization* column with a status badge and savings,
