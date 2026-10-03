@@ -18,6 +18,7 @@
 # Sources: compiled into build/, so the originals are not needed at runtime.
 /src/
 /node_modules/
+/patches/
 
 # Dependency manifests: vendor/ is installed with --no-dev before packaging.
 /composer.lock

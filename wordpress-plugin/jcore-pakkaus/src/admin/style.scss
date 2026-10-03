@@ -929,7 +929,7 @@ $tones: (
 
 	&__connection-error {
 		color: tone(error, fg);
-		word-break: break-word;
+		overflow-wrap: anywhere;
 	}
 
 	&__facts {
@@ -944,7 +944,7 @@ $tones: (
 
 		dd {
 			margin: 0;
-			word-break: break-word;
+			overflow-wrap: anywhere;
 		}
 	}
 

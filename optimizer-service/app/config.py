@@ -21,6 +21,7 @@ class Settings:
     workers: int
     ffmpeg_threads: int
     max_input_bytes: int
+    max_request_bytes: int
     job_timeout: int
     job_ttl_seconds: int
     download_timeout: int
@@ -43,6 +44,7 @@ def load_settings() -> Settings:
         workers=max(1, _int("WORKERS", 1)),
         ffmpeg_threads=max(0, _int("FFMPEG_THREADS", 0)),
         max_input_bytes=_int("MAX_INPUT_MB", 4096) * 1024 * 1024,
+        max_request_bytes=max(1, _int("MAX_REQUEST_KB", 64)) * 1024,
         job_timeout=_int("JOB_TIMEOUT_SECONDS", 4 * 3600),
         job_ttl_seconds=_int("JOB_TTL_HOURS", 24) * 3600,
         download_timeout=_int("DOWNLOAD_TIMEOUT_SECONDS", 1800),

@@ -14,6 +14,14 @@ log = logging.getLogger(__name__)
 
 HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
 
+# Only self-contained video containers/streams. Excludes DASH, HLS, concat,
+# image sequences and other demuxers that can open references to unrelated files.
+# MOV's external data references are disabled by FFmpeg by default.
+MEDIA_INPUT_OPTIONS = (
+    "-protocol_whitelist", "file",
+    "-format_whitelist", "mov,matroska,webm,avi,mpeg,mpegts,flv,ogg,asf,h264,hevc,m4v",
+)
+
 
 class FFmpegError(Exception):
     pass
@@ -116,7 +124,8 @@ def _int_or_none(value: object) -> int | None:
 
 async def probe(path: Path) -> MediaInfo:
     code, out, err = await _capture(
-        "ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)
+        "ffprobe", "-v", "error", *MEDIA_INPUT_OPTIONS,
+        "-print_format", "json", "-show_format", "-show_streams", str(path)
     )
     if code != 0:
         detail = err.strip().replace(f"{path}: ", "") or "ffprobe failed"
@@ -171,7 +180,8 @@ def build_command(src: Path, dst: Path, info: MediaInfo, opts: JobOptions, caps:
     if info.video_index is None:
         raise FFmpegError("Source has no video stream")
 
-    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(src)]
+    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+           *MEDIA_INPUT_OPTIONS, "-i", str(src)]
     cmd += ["-map", f"0:{info.video_index}"]
     keep_audio = info.audio_index is not None and not opts.remove_audio
     if keep_audio:

@@ -100,7 +100,7 @@ export default function StatCards( { summary } ) {
 								formatPercent( saved / original ),
 								formatBytes( original ),
 								formatBytes( optimized )
-						  )
+							)
 						: __( 'Nothing optimized yet', 'jcore-pakkaus' )
 				}
 			/>
@@ -122,7 +122,7 @@ export default function StatCards( { summary } ) {
 									'jcore-pakkaus'
 								),
 								formatNumber( counts.failed )
-						  )
+							)
 						: __( 'No failures', 'jcore-pakkaus' )
 				}
 			/>

@@ -4,3 +4,19 @@ allowBuilds:
   core-js-pure: true
   fs-ext-extra-prebuilt: true
   unrs-resolver: true
+
+# Patched transitives where the current build tools still request older ranges.
+overrides:
+  js-yaml@^5: ^5.4.1
+  qs@^6: ^6.16.0
+  serialize-javascript@^6: ^7.0.5
+  uuid@^8: ^11.1.1
+
+patchedDependencies:
+  braces@3.0.3: patches/braces@3.0.3.patch
+
+# The registry checks versions, not local patches. The patch above and
+# test:security address this advisory until a patched upstream release exists.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm
