@@ -1,11 +1,12 @@
 prefix = "v"
 version-file = "version.txt"
 version-sync = [
-    "wordpress-plugin/video-optimizer/video-optimizer.php",
-    "wordpress-plugin/video-optimizer/readme.txt",
+    "wordpress-plugin/jcore-pakkaus/jcore-pakkaus.php",
+    "wordpress-plugin/jcore-pakkaus/readme.txt",
+    "wordpress-plugin/jcore-pakkaus/package.json",
     "optimizer-service/app/__init__.py",
 ]
 changelog = true
 changelog-format = "wordpress"
-changelog-file = "wordpress-plugin/video-optimizer/readme.txt"
+changelog-file = "wordpress-plugin/jcore-pakkaus/readme.txt"
 changelog-start = "== Changelog =="

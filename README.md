@@ -22,7 +22,7 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 | Directory | What |
 |---|---|
 | [`optimizer-service/`](optimizer-service) | The FFmpeg service (Docker, deploy on Coolify) |
-| [`wordpress-plugin/video-optimizer/`](wordpress-plugin/video-optimizer) | The WordPress plugin |
+| [`wordpress-plugin/jcore-pakkaus/`](wordpress-plugin/jcore-pakkaus) | The WordPress plugin, **JCORE Pakkaus** ([development notes](wordpress-plugin/jcore-pakkaus/README.md)) |
 | [`dev/`](dev) | Local end-to-end stack (WordPress + MariaDB + service) |
 
 ## What the optimization does
@@ -94,51 +94,60 @@ The plugin generates a fresh `callback_secret` for every job.
 
 ## 2. Install the WordPress plugin
 
-1. Download `video-optimizer.zip` from the [latest release](../../releases/latest), upload it under
-   **Plugins → Add New → Upload Plugin** (or copy `wordpress-plugin/video-optimizer` to
-   `wp-content/plugins/`) and activate it.
-2. Go to **Settings → Video Optimizer**, enter the service URL and API token, save, and click
-   **Test connection**.
+The plugin is a JCORE plugin, **JCORE Pakkaus** (`jcore-pakkaus`). It requires PHP 8.2+ and WordPress 6.7+,
+and updates itself through `update.jcore.fi` like the other JCORE plugins.
+
+1. Download `jcore-pakkaus.zip` from the [latest release](../../releases/latest), upload it under
+   **Plugins → Add New → Upload Plugin** and activate it.
+2. Go to **Settings → Video Optimizer → Settings**, enter the service URL and API token, and click
+   **Save and test**.
 
 You can also put the connection details in `wp-config.php` (the fields are then locked):
 
 ```php
-define( 'VIDEO_OPTIMIZER_SERVICE_URL', 'https://video-optimizer.example.com' );
-define( 'VIDEO_OPTIMIZER_API_TOKEN', '...' );
+define( 'JCORE_PAKKAUS_SERVICE_URL', 'https://video-optimizer.example.com' );
+define( 'JCORE_PAKKAUS_API_TOKEN', '...' );
 ```
 
 **Requirements:** the service must be able to reach the site (to download the video and send the
 callback). Sites behind HTTP basic auth or on `localhost` won't work unless the service can reach them.
 
+**Coming from the stand-alone "Video Optimizer" plugin?** Activating JCORE Pakkaus deactivates it and
+moves its settings, job state, statistics and backups over; the old `VIDEO_OPTIMIZER_*` constants keep
+working. Delete the old plugin afterwards.
+
 ### Using it
 
 - New video uploads are optimized automatically (can be turned off; small files can be skipped).
-- **Media → Library (list view)** shows a *Video optimization* column with status and savings,
+- **Settings → Video Optimizer** shows the library at a glance (videos, optimized share, space saved,
+  running jobs), every video with its status, sizes and actions, and an *Optimize all* button for videos
+  uploaded before the plugin was set up. Running jobs update live.
+- **Media → Library (list view)** shows an *Optimization* column with a status badge and savings,
   plus *Optimize video / Re-optimize / Restore original* row actions and an *Optimize videos* bulk action.
 - The same status and actions appear in the attachment details sidebar.
 - If the extension changes (e.g. `.mov` → `.mp4`) the attachment is renamed and URLs in post content
-  are updated. Page builders storing URLs elsewhere can hook into `vopt_url_changed`.
+  are updated. Page builders storing URLs elsewhere can hook into `jcore_pakkaus_url_changed`.
 - Turn on *Keep a backup of the original* to be able to restore originals.
 
 ### WP-CLI
 
 ```sh
-wp video-optimizer test                 # check the connection
-wp video-optimizer optimize --all       # optimize the existing library
-wp video-optimizer optimize 123 456     # specific attachments
-wp video-optimizer status               # table of all videos
-wp video-optimizer poll --wait          # sync now instead of waiting for WP-Cron
-wp video-optimizer restore 123          # restore a backed-up original
+wp pakkaus test                 # check the connection
+wp pakkaus optimize --all       # optimize the existing library
+wp pakkaus optimize 123 456     # specific attachments
+wp pakkaus status               # table of all videos
+wp pakkaus poll --wait          # sync now instead of waiting for WP-Cron
+wp pakkaus restore 123          # restore a backed-up original
 ```
 
 ### Hooks
 
 | Hook | Type | |
 |---|---|---|
-| `vopt_should_optimize( bool $optimize, int $id )` | filter | Skip auto-optimization for certain uploads |
-| `vopt_job_payload( array $payload, int $id )` | filter | Change options per video (e.g. a different CRF) |
-| `vopt_optimized( int $id, array $result, array $job )` | action | After the file was replaced |
-| `vopt_url_changed( string $old, string $new, int[] $post_ids )` | action | After URLs in content were rewritten |
+| `jcore_pakkaus_should_optimize( bool $optimize, int $id )` | filter | Skip auto-optimization for certain uploads |
+| `jcore_pakkaus_job_payload( array $payload, int $id )` | filter | Change options per video (e.g. a different CRF) |
+| `jcore_pakkaus_optimized( int $id, array $result, array $job )` | action | After the file was replaced |
+| `jcore_pakkaus_url_changed( string $old, string $new, int[] $post_ids )` | action | After URLs in content were rewritten |
 
 ---
 
@@ -147,14 +156,17 @@ wp video-optimizer restore 123          # restore a backed-up original
 Versioning is handled by [foonver](https://github.com/foonly/foonver) (same setup as the SuperQuest
 plugin) via the [`Release`](.github/workflows/release.yml) workflow. On every push to `main` it:
 
-1. lints the PHP (7.4) and builds the service image,
+1. lints the plugin (PHPCS, ESLint, Stylelint), builds its assets, runs Plugin Check against what
+   ships, runs both regression suites and builds the service image,
 2. computes the next version from the [conventional commits](https://www.conventionalcommits.org/)
    since the last tag — `feat:` → minor, `fix:`/`chore:`/`docs:`/… → patch, `feat!:` or
    `BREAKING CHANGE:` → major,
-3. writes it to `version.txt` and syncs it into the plugin header, `VOPT_VERSION`, `readme.txt`'s
-   `Stable tag` and the service's `__version__`, regenerates the `== Changelog ==` section of
-   `readme.txt`, then commits (`[skip ci]`) and tags `vX.Y.Z`,
-4. publishes a GitHub release with `video-optimizer.zip` and the release notes.
+3. writes it to `version.txt` and syncs it into the plugin header, `JCORE_PAKKAUS_VERSION`, the
+   plugin's `package.json`, `readme.txt`'s `Stable tag` and the service's `__version__`, regenerates
+   the `== Changelog ==` section of `readme.txt`, then commits (`[skip ci]`) and tags `vX.Y.Z`,
+4. builds the plugin (`make ci`), scopes its bundled [jcore-update](https://github.com/JCO-Digital/jcore-update)
+   library the same way the shared JCORE publish workflow does, publishes a GitHub release with
+   `jcore-pakkaus.zip` and registers the version with `update.jcore.fi` (needs the `UPDATE_API_KEY` secret).
 
 So: write conventional commit messages (e.g. `feat(plugin): add poster image generation`,
 `fix(service): handle videos without audio`), and never bump versions by hand.
@@ -164,11 +176,12 @@ Configuration lives in [`.foonver.toml`](.foonver.toml); preview the next versio
 ## Local development
 
 ```sh
+(cd wordpress-plugin/jcore-pakkaus && pnpm install && composer install && pnpm build)
 cd dev
 docker compose up -d --build
 ./setup.sh                                     # installs WP (admin/admin) + activates the plugin
 docker compose run --rm wpcli wp media import /samples/your-video.mov
-docker compose run --rm wpcli wp video-optimizer status
+docker compose run --rm wpcli wp pakkaus status
 ```
 
 Put test videos in `dev/samples/`. WordPress runs at `http://localhost:8080` (its site URL is

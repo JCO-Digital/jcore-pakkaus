@@ -9,8 +9,10 @@ x-wp-env: &wp-env
   WORDPRESS_DB_PASSWORD: wordpress
   WORDPRESS_DB_NAME: wordpress
   WORDPRESS_CONFIG_EXTRA: |
-    define( 'VIDEO_OPTIMIZER_SERVICE_URL', 'http://optimizer:8000' );
-    define( 'VIDEO_OPTIMIZER_API_TOKEN', 'dev-token-0123456789abcdefghijklmnop' );
+    define( 'JCORE_PAKKAUS_SERVICE_URL', 'http://optimizer:8000' );
+    define( 'JCORE_PAKKAUS_API_TOKEN', 'dev-token-0123456789abcdefghijklmnop' );
+    define( 'WP_HOME', 'http://localhost:8080' );
+    define( 'WP_SITEURL', 'http://localhost:8080' );
 
 services:
   db:
@@ -31,7 +33,8 @@ services:
     environment: *wp-env
     volumes:
       - wp:/var/www/html
-      - ../wordpress-plugin/video-optimizer:/var/www/html/wp-content/plugins/video-optimizer:ro
+      - ../wordpress-plugin/jcore-pakkaus:/var/www/html/wp-content/plugins/jcore-pakkaus:ro
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
 
   wpcli:
     image: wordpress:cli-php8.3
@@ -41,7 +44,8 @@ services:
     environment: *wp-env
     volumes:
       - wp:/var/www/html
-      - ../wordpress-plugin/video-optimizer:/var/www/html/wp-content/plugins/video-optimizer:ro
+      - ../wordpress-plugin/jcore-pakkaus:/var/www/html/wp-content/plugins/jcore-pakkaus:ro
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
       - ./samples:/samples:ro
 
   optimizer:

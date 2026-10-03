@@ -1,0 +1,1020 @@
+@use "sass:map";
+
+// Colours come from the WordPress admin palette, so the screen sits with the
+// rest of wp-admin; the accent follows the user's admin colour scheme.
+$border: #dcdcde;
+$border-light: #f0f0f1;
+$surface: #fff;
+$surface-muted: #f6f7f7;
+$text: #1e1e1e;
+$text-muted: #646970;
+$accent: var(--wp-admin-theme-color, #2271b1);
+$radius: 8px;
+$break-medium: 782px;
+$break-wide: 1100px;
+
+$tones: (
+	neutral: ( fg: #50575e, bg: #f0f0f1 ),
+	info: ( fg: #135e96, bg: #f0f6fc ),
+	success: ( fg: #007017, bg: #edfaef ),
+	warning: ( fg: #8a6116, bg: #fcf9e8 ),
+	error: ( fg: #b32d2e, bg: #fcf0f1 ),
+	accent: ( fg: #4b3a9e, bg: #f3f0fd ),
+);
+
+@function tone($name, $key) {
+
+	@return map.get(map.get($tones, $name), $key);
+}
+
+@keyframes jcore-pakkaus-pulse {
+
+	0%,
+	100% {
+		opacity: 1;
+	}
+
+	50% {
+		opacity: 0.35;
+	}
+}
+
+@keyframes jcore-pakkaus-stripes {
+
+	from {
+		background-position: 0 0;
+	}
+
+	to {
+		background-position: 24px 0;
+	}
+}
+
+.jcore-pakkaus {
+	max-width: 1280px;
+	color: $text;
+
+	h2 {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+		line-height: 1.4;
+	}
+
+	// ── Header ────────────────────────────────────────────────────────────────
+
+	&__header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 16px;
+		margin: 8px 0 20px;
+
+		h1 {
+			margin: 0;
+			padding: 0;
+			font-size: 23px;
+			font-weight: 600;
+			line-height: 1.3;
+		}
+	}
+
+	&__brand {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+
+	&__logo {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		border-radius: 12px;
+		background: $accent;
+		color: #fff;
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+
+		svg {
+			fill: currentcolor;
+		}
+	}
+
+	&__tagline {
+		margin: 2px 0 0;
+		color: $text-muted;
+	}
+
+	// The header pill and the connection box share the status dot.
+	&__service-dot {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: currentcolor;
+	}
+
+	&__service {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		max-width: 100%;
+		padding: 6px 14px;
+		border: 1px solid transparent;
+		border-radius: 999px;
+		font-size: 13px;
+		line-height: 1.4;
+		cursor: pointer;
+		transition: box-shadow 0.15s ease;
+
+		&:hover,
+		&:focus-visible {
+			box-shadow: 0 0 0 1px currentcolor;
+			outline: none;
+		}
+
+		@each $name in neutral, success, error {
+
+			&.is-#{$name} {
+				background: tone($name, bg);
+				color: tone($name, fg);
+			}
+		}
+
+		&.is-checking .jcore-pakkaus__service-dot {
+			animation: jcore-pakkaus-pulse 1s ease-in-out infinite;
+		}
+	}
+
+	&__service-label {
+		font-weight: 600;
+	}
+
+	&__service-detail {
+		overflow: hidden;
+		max-width: 320px;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		opacity: 0.85;
+
+		&::before {
+			content: "·";
+			margin-right: 8px;
+		}
+	}
+
+	// ── Tabs ──────────────────────────────────────────────────────────────────
+
+	&__tabs {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 24px;
+		border-bottom: 1px solid $border;
+	}
+
+	&__tab {
+		position: relative;
+		margin-bottom: -1px;
+		padding: 12px 16px;
+		border: 0;
+		background: none;
+		color: $text-muted;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+
+		&::after {
+			content: "";
+			position: absolute;
+			right: 0;
+			bottom: 0;
+			left: 0;
+			height: 3px;
+			border-radius: 3px 3px 0 0;
+			background: transparent;
+		}
+
+		&:hover {
+			color: $text;
+		}
+
+		&:focus-visible {
+			outline: 2px solid $accent;
+			outline-offset: -2px;
+			border-radius: 2px;
+		}
+
+		&.is-active {
+			color: $text;
+
+			&::after {
+				background: $accent;
+			}
+		}
+	}
+
+	&__loading {
+		display: flex;
+		justify-content: center;
+		padding: 64px 0;
+	}
+
+	// ── Shared surfaces ───────────────────────────────────────────────────────
+
+	&__card {
+		border: 1px solid $border;
+		border-radius: $radius;
+		background: $surface;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	}
+
+	.components-notice {
+		margin: 0 0 16px;
+	}
+
+	&__badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 2px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 20px;
+		white-space: nowrap;
+
+		&::before {
+			content: "";
+			width: 6px;
+			height: 6px;
+			border-radius: 50%;
+			background: currentcolor;
+		}
+
+		@each $name, $colors in $tones {
+
+			&.is-#{$name} {
+				background: map.get($colors, bg);
+				color: map.get($colors, fg);
+			}
+		}
+
+		&.is-info::before {
+			animation: jcore-pakkaus-pulse 1.4s ease-in-out infinite;
+		}
+	}
+
+	&__chip {
+		display: inline-block;
+		margin: 0 6px 4px 0;
+		padding: 1px 8px;
+		border-radius: 4px;
+		background: $surface-muted;
+		border: 1px solid $border;
+		font-size: 12px;
+	}
+
+	// ── Videos tab: stats ─────────────────────────────────────────────────────
+
+	&__stats {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 16px;
+		margin-bottom: 20px;
+
+		@media (max-width: $break-wide) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		@media (max-width: 480px) {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	&__stat {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 18px 20px;
+		border: 1px solid $border;
+		border-radius: $radius;
+		background: $surface;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+
+		@each $name, $colors in $tones {
+
+			&.is-#{$name} .jcore-pakkaus__stat-icon {
+				background: map.get($colors, bg);
+				color: map.get($colors, fg);
+			}
+		}
+	}
+
+	&__stat-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	&__stat-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+
+		svg {
+			fill: currentcolor;
+		}
+	}
+
+	&__stat-label {
+		color: $text-muted;
+		font-weight: 500;
+	}
+
+	&__live {
+		width: 8px;
+		height: 8px;
+		margin-left: auto;
+		border-radius: 50%;
+		background: tone(info, fg);
+		animation: jcore-pakkaus-pulse 1.4s ease-in-out infinite;
+	}
+
+	&__stat-value {
+		font-size: 28px;
+		font-weight: 600;
+		line-height: 1.2;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__stat-note {
+		color: $text-muted;
+		font-size: 12px;
+
+		&.is-error {
+			color: tone(error, fg);
+			font-weight: 500;
+		}
+	}
+
+	&__meter {
+		overflow: hidden;
+		height: 6px;
+		border-radius: 3px;
+		background: $border-light;
+
+		span {
+			display: block;
+			height: 100%;
+			border-radius: 3px;
+			background: tone(success, fg);
+			transition: width 0.4s ease;
+		}
+	}
+
+	// ── Videos tab: call-outs and empty state ─────────────────────────────────
+
+	&__callout {
+		display: flex;
+		align-items: center;
+		gap: 20px;
+		margin-bottom: 20px;
+		padding: 20px 24px;
+		border: 1px solid $border;
+		border-left: 4px solid $accent;
+		border-radius: $radius;
+		background: $surface;
+
+		&.is-subtle {
+			border-left-color: tone(warning, fg);
+			background: tone(warning, bg);
+		}
+
+		p {
+			margin: 4px 0 0;
+			color: $text-muted;
+		}
+
+		.components-button {
+			flex: none;
+			margin-left: auto;
+		}
+
+		@media (max-width: $break-medium) {
+			flex-direction: column;
+			align-items: stretch;
+
+			.components-button {
+				justify-content: center;
+				margin-left: 0;
+			}
+		}
+	}
+
+	&__callout-icon {
+		display: inline-flex;
+		flex: none;
+		color: $accent;
+
+		svg {
+			fill: currentcolor;
+		}
+	}
+
+	&__empty {
+		padding: 56px 24px;
+		border: 1px dashed $border;
+		border-radius: $radius;
+		background: $surface;
+		text-align: center;
+
+		> svg {
+			fill: #a7aaad;
+		}
+
+		h2 {
+			margin-top: 8px;
+		}
+
+		p {
+			max-width: 420px;
+			margin: 6px auto 16px;
+			color: $text-muted;
+		}
+	}
+
+	// ── Videos tab: library list ──────────────────────────────────────────────
+
+	&__toolbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 12px;
+		padding: 12px 16px;
+		border-bottom: 1px solid $border;
+	}
+
+	&__filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+
+	&__filter {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 10px;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		background: none;
+		color: $text-muted;
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+
+		&:hover {
+			background: $surface-muted;
+			color: $text;
+		}
+
+		&:focus-visible {
+			outline: 2px solid $accent;
+			outline-offset: 1px;
+		}
+
+		&.is-selected {
+			border-color: $border;
+			background: $surface-muted;
+			color: $text;
+		}
+	}
+
+	&__filter-count {
+		min-width: 18px;
+		padding: 0 6px;
+		border-radius: 999px;
+		background: $border-light;
+		font-size: 11px;
+		line-height: 18px;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+
+		.is-selected > & {
+			background: $accent;
+			color: #fff;
+		}
+	}
+
+	&__search {
+		width: 240px;
+
+		@media (max-width: $break-medium) {
+			width: 100%;
+		}
+	}
+
+	&__no-results {
+		margin: 0;
+		padding: 40px 16px;
+		color: $text-muted;
+		text-align: center;
+	}
+
+	&__table {
+		width: 100%;
+		border-collapse: collapse;
+		transition: opacity 0.2s ease;
+
+		&.is-loading {
+			opacity: 0.5;
+			pointer-events: none;
+		}
+
+		th {
+			padding: 10px 16px;
+			border-bottom: 1px solid $border;
+			color: $text-muted;
+			font-size: 12px;
+			font-weight: 500;
+			text-align: left;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		td {
+			padding: 12px 16px;
+			border-bottom: 1px solid $border-light;
+			vertical-align: middle;
+		}
+
+		tbody tr:last-child td {
+			border-bottom: 0;
+		}
+
+		tbody tr:hover td {
+			background: #fbfbfc;
+		}
+	}
+
+	&__cell-video {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		min-width: 260px;
+	}
+
+	&__cell-status {
+		width: 26%;
+	}
+
+	&__cell-size {
+		width: 22%;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__cell-actions {
+		width: 1%;
+		white-space: nowrap;
+	}
+
+	&__actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 4px;
+	}
+
+	&__thumb {
+		position: relative;
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		width: 88px;
+		height: 50px;
+		border-radius: 6px;
+		background: linear-gradient(135deg, #2c3338, #50575e);
+		color: #c3c4c7;
+
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+		}
+
+		svg {
+			fill: currentcolor;
+		}
+	}
+
+	&__thumb-duration {
+		position: absolute;
+		right: 4px;
+		bottom: 4px;
+		padding: 0 4px;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.72);
+		color: #fff;
+		font-size: 10px;
+		font-weight: 500;
+		line-height: 16px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__video-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	&__video-title {
+		overflow: hidden;
+		color: $text;
+		font-weight: 600;
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+
+		&:hover {
+			color: $accent;
+			text-decoration: underline;
+		}
+	}
+
+	&__video-meta {
+		overflow: hidden;
+		color: $text-muted;
+		font-size: 12px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	&__progress {
+		overflow: hidden;
+		max-width: 180px;
+		margin-top: 8px;
+		height: 6px;
+		border-radius: 3px;
+		background: $border-light;
+
+		span {
+			display: block;
+			height: 100%;
+			border-radius: 3px;
+			background-color: $accent;
+			background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.25) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.25) 50%, rgba(255, 255, 255, 0.25) 75%, transparent 75%);
+			background-size: 24px 24px;
+			animation: jcore-pakkaus-stripes 1s linear infinite;
+			transition: width 0.6s ease;
+		}
+	}
+
+	&__message {
+		margin: 6px 0 0;
+		color: $text-muted;
+		font-size: 12px;
+		line-height: 1.4;
+
+		&.is-error {
+			color: tone(error, fg);
+		}
+	}
+
+	&__sizes {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	&__size-before {
+		color: $text-muted;
+		text-decoration: line-through;
+		text-decoration-color: #a7aaad;
+	}
+
+	&__arrow {
+		color: #a7aaad;
+	}
+
+	&__saving {
+		padding: 0 6px;
+		border-radius: 4px;
+		background: tone(success, bg);
+		color: tone(success, fg);
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	&__streams {
+		margin-top: 4px;
+		color: $text-muted;
+		font-size: 12px;
+	}
+
+	&__filesize {
+		color: $text-muted;
+	}
+
+	&__pagination {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 16px;
+		border-top: 1px solid $border;
+		color: $text-muted;
+	}
+
+	&__pagination-pages {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	@media (max-width: $break-medium) {
+
+		&__table {
+
+			thead {
+				display: none;
+			}
+
+			tr,
+			td {
+				display: block;
+				width: auto;
+			}
+
+			tr {
+				padding: 12px 0;
+				border-bottom: 1px solid $border-light;
+			}
+
+			td {
+				padding: 4px 16px;
+				border: 0;
+			}
+
+			.jcore-pakkaus__cell-video {
+				display: flex;
+				min-width: 0;
+			}
+
+			.jcore-pakkaus__actions {
+				justify-content: flex-start;
+			}
+		}
+	}
+
+	// ── Settings tab ──────────────────────────────────────────────────────────
+
+	&__settings {
+		max-width: 1040px;
+	}
+
+	&__section {
+		display: grid;
+		grid-template-columns: 280px minmax(0, 1fr);
+		gap: 32px;
+		padding: 0 0 32px;
+
+		& + & {
+			padding-top: 32px;
+			border-top: 1px solid $border;
+		}
+
+		@media (max-width: $break-wide) {
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+	}
+
+	&__section-intro p {
+		margin: 6px 0 0;
+		color: $text-muted;
+	}
+
+	&__section-body {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+		padding: 24px;
+
+		.components-base-control__help {
+			margin-bottom: 0;
+		}
+	}
+
+	&__short-field {
+		max-width: 260px;
+	}
+
+	&__field-row {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 20px;
+
+		@media (max-width: $break-medium) {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	&__codecs {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 12px;
+		margin: 0;
+		padding: 0;
+		border: 0;
+
+		legend {
+			margin-bottom: 8px;
+			padding: 0;
+			font-size: 11px;
+			font-weight: 500;
+			line-height: 1.4;
+			text-transform: uppercase;
+		}
+
+		@media (max-width: $break-medium) {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	&__codec {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 14px 16px 14px 44px;
+		border: 1px solid $border;
+		border-radius: $radius;
+		cursor: pointer;
+		transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+		input {
+			position: absolute;
+			top: 15px;
+			left: 16px;
+			margin: 0;
+		}
+
+		&:hover {
+			border-color: #a7aaad;
+		}
+
+		&.is-selected {
+			border-color: $accent;
+			box-shadow: 0 0 0 1px $accent;
+		}
+
+		&:focus-within {
+			box-shadow: 0 0 0 2px $accent;
+		}
+	}
+
+	&__codec-title {
+		font-weight: 600;
+	}
+
+	&__codec-description {
+		color: $text-muted;
+		font-size: 12px;
+		line-height: 1.5;
+	}
+
+	&__codec-warning {
+		color: tone(error, fg);
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	&__connection {
+		padding: 16px;
+		border-radius: $radius;
+		background: $surface-muted;
+		border: 1px solid $border-light;
+
+		@each $name in neutral, success, error {
+
+			&.is-#{$name} .jcore-pakkaus__connection-head {
+				color: tone($name, fg);
+			}
+		}
+
+		p {
+			margin: 10px 0 0;
+		}
+	}
+
+	&__connection-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+
+		.components-button {
+			margin-left: auto;
+		}
+	}
+
+	&__connection-error {
+		color: tone(error, fg);
+		word-break: break-word;
+	}
+
+	&__facts {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 6px 16px;
+		margin: 14px 0 0;
+
+		dt {
+			color: $text-muted;
+		}
+
+		dd {
+			margin: 0;
+			word-break: break-word;
+		}
+	}
+
+	&__callback {
+		margin-top: 14px;
+		padding-top: 14px;
+		border-top: 1px solid $border;
+
+		p {
+			margin: 0 0 8px;
+			color: $text-muted;
+			font-size: 12px;
+		}
+	}
+
+	&__callback-url {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+
+		code {
+			overflow-x: auto;
+			padding: 4px 8px;
+			border-radius: 4px;
+			background: $surface;
+			font-size: 12px;
+			white-space: nowrap;
+		}
+	}
+
+	&__savebar {
+		position: sticky;
+		bottom: 0;
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 12px;
+		margin: 8px 0 0;
+		padding: 14px 0;
+		border-top: 1px solid $border;
+		background: #f0f0f1; // wp-admin body background.
+	}
+
+	&__savebar-status {
+		margin-right: auto;
+		color: $text-muted;
+
+		.is-dirty > & {
+			color: tone(warning, fg);
+			font-weight: 500;
+		}
+	}
+
+	// ── Snackbars ─────────────────────────────────────────────────────────────
+
+	&__snackbars {
+		position: fixed;
+		bottom: 24px;
+		left: 184px; // Clear the expanded admin menu.
+		z-index: 100000;
+		width: auto;
+
+		.folded & {
+			left: 60px;
+		}
+
+		@media (max-width: $break-medium) {
+			left: 16px;
+			right: 16px;
+		}
+	}
+}

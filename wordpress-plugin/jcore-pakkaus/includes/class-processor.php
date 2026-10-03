@@ -2,40 +2,47 @@
 /**
  * Job lifecycle: submit, poll, finalize, restore.
  *
- * @package Video_Optimizer
+ * @package Jcore\Pakkaus
  */
 
-defined( 'ABSPATH' ) || exit;
+namespace Jcore\Pakkaus;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 /**
- * Attachment statuses (stored in the _vopt_status meta):
+ * Attachment statuses (stored in the _jcore_pakkaus_status meta):
  *
  * - pending:    waiting to be (re)submitted to the service
  * - queued:     accepted by the service, waiting for a worker
  * - processing: being downloaded/transcoded by the service, or the result is being swapped in
  * - optimized:  the attachment file was replaced with the optimized version
  * - skipped:    the result was not smaller enough; the original was kept
- * - failed:     something went wrong; see _vopt_message
+ * - failed:     something went wrong; see _jcore_pakkaus_message
  * - restored:   the original file was restored from the backup
  */
-class Vopt_Processor {
+final class Processor {
 
-	const META_STATUS   = '_vopt_status';
-	const META_JOB      = '_vopt_job_id';
-	const META_SECRET   = '_vopt_secret';
-	const META_PROGRESS = '_vopt_progress';
-	const META_MESSAGE  = '_vopt_message';
-	const META_ATTEMPTS = '_vopt_attempts';
-	const META_STATS    = '_vopt_stats';
-	const META_BACKUP   = '_vopt_backup';
-	const META_UPDATED  = '_vopt_updated';
+	public const META_PREFIX   = '_jcore_pakkaus_';
+	public const META_STATUS   = self::META_PREFIX . 'status';
+	public const META_JOB      = self::META_PREFIX . 'job_id';
+	public const META_SECRET   = self::META_PREFIX . 'secret';
+	public const META_PROGRESS = self::META_PREFIX . 'progress';
+	public const META_MESSAGE  = self::META_PREFIX . 'message';
+	public const META_ATTEMPTS = self::META_PREFIX . 'attempts';
+	public const META_STATS    = self::META_PREFIX . 'stats';
+	public const META_BACKUP   = self::META_PREFIX . 'backup';
+	public const META_UPDATED  = self::META_PREFIX . 'updated';
 
-	const CRON_POLL     = 'vopt_poll';
-	const CRON_FINALIZE = 'vopt_finalize';
+	public const CRON_POLL     = 'jcore_pakkaus_poll';
+	public const CRON_FINALIZE = 'jcore_pakkaus_finalize';
+	private const SCHEDULE     = 'jcore_pakkaus_minute';
 
-	const ACTIVE_STATUSES     = array( 'pending', 'queued', 'processing' );
-	const MAX_SUBMIT_ATTEMPTS = 5;
-	const POLL_BATCH          = 20;
+	public const ACTIVE_STATUSES = array( 'pending', 'queued', 'processing' );
+	public const RUNNING         = array( 'queued', 'processing' );
+	private const MAX_ATTEMPTS   = 5;
+	private const POLL_BATCH     = 20;
 
 	/**
 	 * True while the plugin regenerates attachment metadata itself, so the upload hook doesn't fire again.
@@ -48,7 +55,7 @@ class Vopt_Processor {
 	 * Register hooks.
 	 */
 	public static function init() {
-		add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) );
+		add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval -- only scheduled while jobs are in flight.
 		add_filter( 'wp_generate_attachment_metadata', array( __CLASS__, 'on_generate_metadata' ), 20, 3 );
 		add_action( self::CRON_POLL, array( __CLASS__, 'poll' ) );
 		add_action( self::CRON_FINALIZE, array( __CLASS__, 'finalize' ) );
@@ -69,7 +76,7 @@ class Vopt_Processor {
 	 */
 	public static function deactivate() {
 		wp_clear_scheduled_hook( self::CRON_POLL );
-		wp_clear_scheduled_hook( self::CRON_FINALIZE );
+		wp_unschedule_hook( self::CRON_FINALIZE ); // Scheduled per attachment, with arguments.
 	}
 
 	/**
@@ -79,9 +86,9 @@ class Vopt_Processor {
 	 * @return array
 	 */
 	public static function cron_schedules( $schedules ) {
-		$schedules['vopt_minute'] = array(
+		$schedules[ self::SCHEDULE ] = array(
 			'interval' => MINUTE_IN_SECONDS,
-			'display'  => __( 'Every minute (Video Optimizer)', 'video-optimizer' ),
+			'display'  => __( 'Every minute (Video Optimizer)', 'jcore-pakkaus' ),
 		);
 		return $schedules;
 	}
@@ -118,7 +125,7 @@ class Vopt_Processor {
 		if ( self::$regenerating || 'create' !== $context ) {
 			return $metadata;
 		}
-		if ( ! Vopt_Settings::get( 'auto_optimize' ) || ! Vopt_Settings::is_configured() ) {
+		if ( ! Settings::get( 'auto_optimize' ) || ! Settings::is_configured() ) {
 			return $metadata;
 		}
 		if ( ! self::is_video( $id ) || '' !== self::status( $id ) ) {
@@ -126,7 +133,7 @@ class Vopt_Processor {
 		}
 
 		$file     = get_attached_file( $id );
-		$min_size = (float) Vopt_Settings::get( 'min_file_size_mb' ) * MB_IN_BYTES;
+		$min_size = (float) Settings::get( 'min_file_size_mb' ) * MB_IN_BYTES;
 		if ( ! $file || ! file_exists( $file ) || filesize( $file ) < $min_size ) {
 			return $metadata;
 		}
@@ -137,7 +144,7 @@ class Vopt_Processor {
 		 * @param bool $optimize Whether to optimize.
 		 * @param int  $id       Attachment ID.
 		 */
-		if ( apply_filters( 'vopt_should_optimize', true, $id ) ) {
+		if ( apply_filters( 'jcore_pakkaus_should_optimize', true, $id ) ) {
 			self::queue( $id );
 		}
 
@@ -148,14 +155,14 @@ class Vopt_Processor {
 	 * Start (or restart) optimization for an attachment.
 	 *
 	 * @param int $id Attachment ID.
-	 * @return true|WP_Error
+	 * @return true|\WP_Error
 	 */
 	public static function queue( $id ) {
 		if ( ! self::is_video( $id ) ) {
-			return new WP_Error( 'vopt_not_video', __( 'This attachment is not a video.', 'video-optimizer' ) );
+			return new \WP_Error( 'jcore_pakkaus_not_video', __( 'This attachment is not a video.', 'jcore-pakkaus' ) );
 		}
-		if ( in_array( self::status( $id ), array( 'queued', 'processing' ), true ) ) {
-			return new WP_Error( 'vopt_in_progress', __( 'This video is already being optimized.', 'video-optimizer' ) );
+		if ( in_array( self::status( $id ), self::RUNNING, true ) ) {
+			return new \WP_Error( 'jcore_pakkaus_in_progress', __( 'This video is already being optimized.', 'jcore-pakkaus' ) );
 		}
 
 		delete_post_meta( $id, self::META_JOB );
@@ -166,18 +173,45 @@ class Vopt_Processor {
 	}
 
 	/**
+	 * Mark an attachment for optimization without contacting the service. The
+	 * poller submits pending attachments in batches, so this suits bulk actions.
+	 *
+	 * @param int $id Attachment ID.
+	 * @return bool Whether the attachment was marked.
+	 */
+	public static function enqueue( $id ) {
+		if ( ! self::is_video( $id ) || in_array( self::status( $id ), self::ACTIVE_STATUSES, true ) ) {
+			return false;
+		}
+
+		delete_post_meta( $id, self::META_JOB );
+		update_post_meta( $id, self::META_ATTEMPTS, 0 );
+		self::set_state(
+			$id,
+			'pending',
+			array(
+				'progress' => 0,
+				'message'  => '',
+			)
+		);
+		self::ensure_polling();
+
+		return true;
+	}
+
+	/**
 	 * Send the job to the service.
 	 *
 	 * @param int $id Attachment ID.
-	 * @return true|WP_Error
+	 * @return true|\WP_Error
 	 */
 	public static function submit( $id ) {
 		$secret  = wp_generate_password( 40, false );
 		$payload = array(
 			'source_url'      => wp_get_attachment_url( $id ),
-			'callback_url'    => rest_url( Vopt_Rest::NAMESPACE . '/callback' ),
+			'callback_url'    => Rest\Callback_Controller::url(),
 			'callback_secret' => $secret,
-			'options'         => Vopt_Settings::job_options(),
+			'options'         => Settings::job_options(),
 			'metadata'        => array(
 				'attachment_id' => (int) $id,
 				'site'          => home_url( '/' ),
@@ -190,21 +224,21 @@ class Vopt_Processor {
 		 * @param array $payload Payload.
 		 * @param int   $id      Attachment ID.
 		 */
-		$payload = apply_filters( 'vopt_job_payload', $payload, $id );
+		$payload = apply_filters( 'jcore_pakkaus_job_payload', $payload, $id );
 
-		$job = Vopt_Client::create_job( $payload );
+		$job = Client::create_job( $payload );
 
 		if ( is_wp_error( $job ) ) {
 			$attempts = (int) get_post_meta( $id, self::META_ATTEMPTS, true ) + 1;
 			update_post_meta( $id, self::META_ATTEMPTS, $attempts );
 			$status = get_post_meta( $id, self::META_STATUS, true );
-			$final  = $attempts >= self::MAX_SUBMIT_ATTEMPTS || in_array( $job->get_error_code(), array( 'vopt_http_401', 'vopt_http_422' ), true );
+			$final  = $attempts >= self::MAX_ATTEMPTS || in_array( $job->get_error_code(), array( 'jcore_pakkaus_http_401', 'jcore_pakkaus_http_422' ), true );
 			self::set_state(
 				$id,
 				$final ? 'failed' : ( $status ? $status : 'pending' ),
 				array(
 					/* translators: %s: error message */
-					'message' => $final ? $job->get_error_message() : sprintf( __( 'Could not reach the optimizer service, will retry: %s', 'video-optimizer' ), $job->get_error_message() ),
+					'message' => $final ? $job->get_error_message() : sprintf( __( 'Could not reach the optimizer service, will retry: %s', 'jcore-pakkaus' ), $job->get_error_message() ),
 				)
 			);
 			if ( ! $final ) {
@@ -265,7 +299,7 @@ class Vopt_Processor {
 			}
 			$job_id = get_post_meta( $id, self::META_JOB, true );
 			if ( ! $job_id ) {
-				self::set_state( $id, 'failed', array( 'message' => __( 'Lost track of the optimization job.', 'video-optimizer' ) ) );
+				self::set_state( $id, 'failed', array( 'message' => __( 'Lost track of the optimization job.', 'jcore-pakkaus' ) ) );
 				return;
 			}
 		} finally {
@@ -273,12 +307,12 @@ class Vopt_Processor {
 		}
 
 		// Fetch outside the mutex; applying the response checks the current job again.
-		$job = Vopt_Client::get_job( $job_id );
+		$job = Client::get_job( $job_id );
 		if ( is_wp_error( $job ) ) {
-			if ( 'vopt_http_404' === $job->get_error_code() && self::lock( $id ) ) {
+			if ( 'jcore_pakkaus_http_404' === $job->get_error_code() && self::lock( $id ) ) {
 				try {
 					if ( self::is_current_job( $id, array( 'id' => $job_id ) ) ) {
-						self::set_state( $id, 'failed', array( 'message' => __( 'The optimization job no longer exists on the service.', 'video-optimizer' ) ) );
+						self::set_state( $id, 'failed', array( 'message' => __( 'The optimization job no longer exists on the service.', 'jcore-pakkaus' ) ) );
 					}
 				} finally {
 					self::unlock( $id );
@@ -324,7 +358,7 @@ class Vopt_Processor {
 		wp_cache_delete( $id, 'post_meta' );
 		$job_id = get_post_meta( $id, self::META_JOB, true );
 		return $job_id && isset( $job['id'] ) && $job_id === $job['id']
-			&& in_array( self::status( $id ), array( 'queued', 'processing' ), true );
+			&& in_array( self::status( $id ), self::RUNNING, true );
 	}
 
 	/**
@@ -361,7 +395,7 @@ class Vopt_Processor {
 
 			case 'failed':
 			default:
-				self::set_state( $id, 'failed', array( 'message' => $message ? $message : __( 'Optimization failed.', 'video-optimizer' ) ) );
+				self::set_state( $id, 'failed', array( 'message' => $message ? $message : __( 'Optimization failed.', 'jcore-pakkaus' ) ) );
 				self::forget_job( $id );
 				break;
 		}
@@ -392,7 +426,7 @@ class Vopt_Processor {
 				'processing',
 				array(
 					'progress' => 100,
-					'message'  => __( 'Downloading the optimized file…', 'video-optimizer' ),
+					'message'  => __( 'Downloading the optimized file…', 'jcore-pakkaus' ),
 				)
 			);
 			wp_schedule_single_event( time(), self::CRON_FINALIZE, array( (int) $id ) );
@@ -418,7 +452,7 @@ class Vopt_Processor {
 	 *
 	 * @param int        $id  Attachment ID.
 	 * @param array|null $job Job data if already fetched.
-	 * @return true|WP_Error|null Null when there was nothing to do.
+	 * @return true|\WP_Error|null Null when there was nothing to do.
 	 */
 	public static function finalize( $id, $job = null ) {
 		$id = (int) $id;
@@ -428,13 +462,13 @@ class Vopt_Processor {
 
 		try {
 			wp_cache_delete( $id, 'post_meta' );
-			if ( ! in_array( self::status( $id ), array( 'queued', 'processing' ), true ) ) {
+			if ( ! in_array( self::status( $id ), self::RUNNING, true ) ) {
 				return null;
 			}
 
 			$job_id = get_post_meta( $id, self::META_JOB, true );
 			if ( ! is_array( $job ) ) {
-				$job = Vopt_Client::get_job( $job_id );
+				$job = Client::get_job( $job_id );
 				if ( is_wp_error( $job ) ) {
 					self::ensure_polling();
 					return $job;
@@ -449,19 +483,19 @@ class Vopt_Processor {
 			}
 
 			if ( function_exists( 'set_time_limit' ) ) {
-				@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, Squiz.PHP.DiscouragedFunctions.Discouraged -- downloading a large video can outlast max_execution_time.
 			}
 
 			$result = self::replace_file( $id, $job );
 			if ( is_wp_error( $result ) ) {
-				if ( 'vopt_download_retry' === $result->get_error_code() ) {
+				if ( 'jcore_pakkaus_download_retry' === $result->get_error_code() ) {
 					self::set_state(
 						$id,
 						'processing',
 						array(
 							'progress' => 100,
 							/* translators: %s: error message */
-							'message' => sprintf( __( 'Could not download the optimized video, will retry: %s', 'video-optimizer' ), $result->get_error_message() ),
+							'message'  => sprintf( __( 'Could not download the optimized video, will retry: %s', 'jcore-pakkaus' ), $result->get_error_message() ),
 						)
 					);
 					self::ensure_polling();
@@ -490,7 +524,7 @@ class Vopt_Processor {
 			 * @param array $result Original/optimized sizes and paths.
 			 * @param array $job    Job data from the service.
 			 */
-			do_action( 'vopt_optimized', $id, $result, $job );
+			do_action( 'jcore_pakkaus_optimized', $id, $result, $job );
 
 			return true;
 		} finally {
@@ -503,12 +537,12 @@ class Vopt_Processor {
 	 *
 	 * @param int   $id  Attachment ID.
 	 * @param array $job Completed job.
-	 * @return array|WP_Error
+	 * @return array|\WP_Error
 	 */
 	private static function replace_file( $id, $job ) {
 		$current = get_attached_file( $id );
 		if ( ! $current || ! file_exists( $current ) ) {
-			return new WP_Error( 'vopt_missing_file', __( 'The original file no longer exists.', 'video-optimizer' ) );
+			return new \WP_Error( 'jcore_pakkaus_missing_file', __( 'The original file no longer exists.', 'jcore-pakkaus' ) );
 		}
 
 		$dir           = dirname( $current );
@@ -517,9 +551,9 @@ class Vopt_Processor {
 		$original_size = filesize( $current );
 		$old_mime      = get_post_mime_type( $id );
 		$old_url       = wp_get_attachment_url( $id );
-		$tmp           = $dir . '/.vopt-' . $id . '-' . wp_generate_password( 8, false ) . '.part';
+		$tmp           = $dir . '/.jcore-pakkaus-' . $id . '-' . wp_generate_password( 8, false ) . '.part';
 
-		$downloaded = Vopt_Client::download_output( $job['id'], $tmp );
+		$downloaded = Client::download_output( $job['id'], $tmp );
 		if ( is_wp_error( $downloaded ) ) {
 			return $downloaded;
 		}
@@ -529,7 +563,7 @@ class Vopt_Processor {
 		$expected = isset( $job['output']['size'] ) ? (int) $job['output']['size'] : 0;
 		if ( ( $expected && $size !== $expected ) || ! self::looks_like_mp4( $tmp ) ) {
 			wp_delete_file( $tmp );
-			return new WP_Error( 'vopt_download_retry', __( 'The downloaded file is incomplete or not an MP4.', 'video-optimizer' ) );
+			return new \WP_Error( 'jcore_pakkaus_download_retry', __( 'The downloaded file is incomplete or not an MP4.', 'jcore-pakkaus' ) );
 		}
 
 		$same_path = 'mp4' === strtolower( $extension );
@@ -537,29 +571,29 @@ class Vopt_Processor {
 
 		// Keep the very first original only; re-optimizing doesn't back up an already optimized file.
 		$backup        = self::backup_path( $id );
-		$create_backup = Vopt_Settings::get( 'keep_original' ) && ! $backup;
+		$create_backup = Settings::get( 'keep_original' ) && ! $backup;
 		if ( $create_backup ) {
 			if ( $same_path ) {
 				$backup = $dir . '/' . wp_unique_filename( $dir, $info['filename'] . '.original.' . $extension );
-				if ( ! @rename( $current, $backup ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! @rename( $current, $backup ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- atomic within the uploads directory.
 					wp_delete_file( $tmp );
-					return new WP_Error( 'vopt_backup_failed', __( 'Could not back up the original file.', 'video-optimizer' ) );
+					return new \WP_Error( 'jcore_pakkaus_backup_failed', __( 'Could not back up the original file.', 'jcore-pakkaus' ) );
 				}
 			} else {
 				$backup = $current; // The original simply stays where it is.
 			}
 		}
 
-		if ( ! @rename( $tmp, $target ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! @rename( $tmp, $target ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- atomic within the uploads directory.
 			wp_delete_file( $tmp );
 			if ( $create_backup && $same_path ) {
-				@rename( $backup, $current ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				@rename( $backup, $current ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename
 			}
-			return new WP_Error( 'vopt_replace_failed', __( 'Could not move the optimized file into place.', 'video-optimizer' ) );
+			return new \WP_Error( 'jcore_pakkaus_replace_failed', __( 'Could not move the optimized file into place.', 'jcore-pakkaus' ) );
 		}
 
 		$stat = stat( $dir );
-		@chmod( $target, $stat['mode'] & 0000666 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		@chmod( $target, $stat['mode'] & 0000666 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_system_operations_chmod -- same permissions core gives uploads.
 
 		if ( $create_backup ) {
 			update_post_meta(
@@ -595,16 +629,16 @@ class Vopt_Processor {
 	 * Restore the backed-up original file.
 	 *
 	 * @param int $id Attachment ID.
-	 * @return true|WP_Error
+	 * @return true|\WP_Error
 	 */
 	public static function restore( $id ) {
 		$backup = self::backup_path( $id );
 		$meta   = get_post_meta( $id, self::META_BACKUP, true );
 		if ( ! $backup ) {
-			return new WP_Error( 'vopt_no_backup', __( 'No backup of the original file exists.', 'video-optimizer' ) );
+			return new \WP_Error( 'jcore_pakkaus_no_backup', __( 'No backup of the original file exists.', 'jcore-pakkaus' ) );
 		}
-		if ( in_array( self::status( $id ), array( 'queued', 'processing' ), true ) ) {
-			return new WP_Error( 'vopt_in_progress', __( 'Wait for the running optimization to finish first.', 'video-optimizer' ) );
+		if ( in_array( self::status( $id ), self::RUNNING, true ) ) {
+			return new \WP_Error( 'jcore_pakkaus_in_progress', __( 'Wait for the running optimization to finish first.', 'jcore-pakkaus' ) );
 		}
 
 		$uploads  = wp_get_upload_dir();
@@ -612,8 +646,8 @@ class Vopt_Processor {
 		$original = path_join( $uploads['basedir'], $meta['attached'] );
 		$old_url  = wp_get_attachment_url( $id );
 
-		if ( $backup !== $original && ! @rename( $backup, $original ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			return new WP_Error( 'vopt_restore_failed', __( 'Could not restore the original file.', 'video-optimizer' ) );
+		if ( $backup !== $original && ! @rename( $backup, $original ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename
+			return new \WP_Error( 'jcore_pakkaus_restore_failed', __( 'Could not restore the original file.', 'jcore-pakkaus' ) );
 		}
 		if ( $current && $current !== $original ) {
 			wp_delete_file( $current );
@@ -745,7 +779,7 @@ class Vopt_Processor {
 	private static function forget_job( $id ) {
 		$job_id = get_post_meta( $id, self::META_JOB, true );
 		if ( $job_id ) {
-			Vopt_Client::delete_job( $job_id );
+			Client::delete_job( $job_id );
 		}
 		delete_post_meta( $id, self::META_JOB );
 		delete_post_meta( $id, self::META_SECRET );
@@ -756,7 +790,7 @@ class Vopt_Processor {
 	 */
 	public static function ensure_polling() {
 		if ( ! wp_next_scheduled( self::CRON_POLL ) ) {
-			wp_schedule_event( time() + MINUTE_IN_SECONDS, 'vopt_minute', self::CRON_POLL );
+			wp_schedule_event( time() + MINUTE_IN_SECONDS, self::SCHEDULE, self::CRON_POLL );
 		}
 	}
 
@@ -835,7 +869,7 @@ class Vopt_Processor {
 		 * @param string $new_url  New URL.
 		 * @param int[]  $post_ids Updated posts.
 		 */
-		do_action( 'vopt_url_changed', $old_url, $new_url, array_map( 'intval', $post_ids ) );
+		do_action( 'jcore_pakkaus_url_changed', $old_url, $new_url, array_map( 'intval', $post_ids ) );
 	}
 
 	/**
@@ -883,6 +917,6 @@ class Vopt_Processor {
 	 * @return string
 	 */
 	private static function lock_name( $id ) {
-		return substr( DB_NAME . '.' . $GLOBALS['wpdb']->prefix . 'vopt_' . $id, -64 );
+		return substr( DB_NAME . '.' . $GLOBALS['wpdb']->prefix . 'jcore_pakkaus_' . $id, -64 );
 	}
 }
