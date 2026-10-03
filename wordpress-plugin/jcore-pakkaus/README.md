@@ -1,6 +1,6 @@
 # JCORE Pakkaus
 
-The WordPress half of the video optimizer: it sends uploaded videos to the self-hosted FFmpeg service in [`optimizer-service/`](../../optimizer-service), swaps the results into the media library, and shows the library's optimization state under **Settings → Video Optimizer**.
+The WordPress half of JCORE Pakkaus: it sends uploaded videos to the self-hosted FFmpeg service in [`optimizer-service/`](../../optimizer-service), swaps the results into the media library, and shows the library's optimization state under **Settings → JCORE Pakkaus**.
 
 This file covers the plugin's development workflow. What the plugin does, and how to use it, is in [readme.txt](readme.txt); how the whole system fits together is in the [repository README](../../README.md).
 
@@ -57,7 +57,7 @@ includes/
   class-library.php            Video list and library summary queries
   class-migration.php          Imports the stand-alone Video Optimizer plugin's data
   class-cli.php                `wp pakkaus` commands
-  admin/class-menu.php         Settings > Video Optimizer page and its assets
+  admin/class-menu.php         Settings > JCORE Pakkaus page and its assets
   admin/class-media.php        Media library column, row and bulk actions, badges
   rest/class-controller.php    Shared namespace and permission check
   rest/class-*-controller.php  callback, settings, service, videos

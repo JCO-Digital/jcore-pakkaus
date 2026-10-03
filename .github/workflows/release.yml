@@ -99,7 +99,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Build service image
-        run: docker build -t video-optimizer-service:ci optimizer-service
+        run: docker build -t jcore-pakkaus-service:ci optimizer-service
 
   release:
     name: Bump version

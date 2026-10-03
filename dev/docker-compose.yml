@@ -1,7 +1,7 @@
 # Local end-to-end test stack: WordPress + MariaDB + optimizer service.
 #   docker compose up -d --build && ./setup.sh
 # WordPress: http://localhost:8080 (admin / admin). Optimizer: http://localhost:8000/docs
-name: video-optimizer-dev
+name: jcore-pakkaus-dev
 
 x-wp-env: &wp-env
   WORDPRESS_DB_HOST: db

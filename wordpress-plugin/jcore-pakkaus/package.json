@@ -29,11 +29,11 @@
   "packageManager": "pnpm@11.3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JCO-Digital/video-optimizer.git",
+    "url": "git+https://github.com/JCO-Digital/jcore-pakkaus.git",
     "directory": "wordpress-plugin/jcore-pakkaus"
   },
   "bugs": {
-    "url": "https://github.com/JCO-Digital/video-optimizer/issues"
+    "url": "https://github.com/JCO-Digital/jcore-pakkaus/issues"
   },
-  "homepage": "https://github.com/JCO-Digital/video-optimizer#readme"
+  "homepage": "https://github.com/JCO-Digital/jcore-pakkaus#readme"
 }

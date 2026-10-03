@@ -42,7 +42,7 @@ final class Cli {
 	 */
 	public function optimize( $args, $assoc_args ) {
 		if ( ! Settings::is_configured() ) {
-			WP_CLI::error( 'Configure the service URL and API token first (Settings → Video Optimizer, or `wp option` / wp-config.php).' );
+			WP_CLI::error( 'Configure the service URL and API token first (Settings → JCORE Pakkaus, or `wp option` / wp-config.php).' );
 		}
 
 		$ids = array_map( 'absint', $args );

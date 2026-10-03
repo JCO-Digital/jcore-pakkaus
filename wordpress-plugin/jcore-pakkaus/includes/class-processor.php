@@ -88,7 +88,7 @@ final class Processor {
 	public static function cron_schedules( $schedules ) {
 		$schedules[ self::SCHEDULE ] = array(
 			'interval' => MINUTE_IN_SECONDS,
-			'display'  => __( 'Every minute (Video Optimizer)', 'jcore-pakkaus' ),
+			'display'  => __( 'Every minute (JCORE Pakkaus)', 'jcore-pakkaus' ),
 		);
 		return $schedules;
 	}

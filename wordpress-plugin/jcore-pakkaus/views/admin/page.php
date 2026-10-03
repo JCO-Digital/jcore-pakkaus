@@ -1,6 +1,6 @@
 <?php
 /**
- * Mount point for the Video Optimizer app.
+ * Mount point for the JCORE Pakkaus app.
  *
  * The app renders its own `.wrap` container, so this element stays bare.
  *
@@ -15,6 +15,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 <div id="jcore-pakkaus-app"></div>
 <noscript>
 	<div class="wrap">
-		<p><?php esc_html_e( 'The Video Optimizer screen needs JavaScript.', 'jcore-pakkaus' ); ?></p>
+		<p><?php esc_html_e( 'The JCORE Pakkaus screen needs JavaScript.', 'jcore-pakkaus' ); ?></p>
 	</div>
 </noscript>

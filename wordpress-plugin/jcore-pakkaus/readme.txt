@@ -17,7 +17,7 @@ When a video is uploaded, the plugin asks your optimizer service to transcode it
 = Features =
 
 * **Automatic optimization** of new uploads, plus per-video, bulk and "optimize all" actions.
-* **Video dashboard** under Settings → Video Optimizer: space saved, progress of running jobs, and every video with its status, sizes and actions.
+* **Video dashboard** under Settings → JCORE Pakkaus: space saved, progress of running jobs, and every video with its status, sizes and actions.
 * **Downscaling** (measured on the short side, so portrait videos work), frame-rate cap and **HDR to SDR** tonemapping.
 * Keeps the original when the result is not meaningfully smaller.
 * Optional **backups** with one-click restore.
@@ -33,13 +33,13 @@ The plugin checks for updates against `https://update.jcore.fi`, operated by J&C
 
 = Source code =
 
-The admin screen is built with `@wordpress/scripts`. Its readable source is published at https://github.com/JCO-Digital/video-optimizer.
+The admin screen is built with `@wordpress/scripts`. Its readable source is published at https://github.com/JCO-Digital/jcore-pakkaus.
 
 == Installation ==
 
 1. Upload the `jcore-pakkaus` folder to `/wp-content/plugins/`, or install the zip from the Plugins screen.
 2. Activate the plugin.
-3. Open **Settings → Video Optimizer → Settings**, enter the service URL and API token, and click **Test connection**.
+3. Open **Settings → JCORE Pakkaus → Settings**, enter the service URL and API token, and click **Test connection**.
 
 The URL and token can also be set in `wp-config.php` with `JCORE_PAKKAUS_SERVICE_URL` and `JCORE_PAKKAUS_API_TOKEN`.
 
