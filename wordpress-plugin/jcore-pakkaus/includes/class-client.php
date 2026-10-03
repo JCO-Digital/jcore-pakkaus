@@ -2,15 +2,19 @@
 /**
  * HTTP client for the optimizer service.
  *
- * @package Video_Optimizer
+ * @package Jcore\Pakkaus
  */
 
-defined( 'ABSPATH' ) || exit;
+namespace Jcore\Pakkaus;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 /**
  * Thin wrapper around the WordPress HTTP API.
  */
-class Vopt_Client {
+final class Client {
 
 	/**
 	 * Perform a request against the service and decode the JSON response.
@@ -19,11 +23,11 @@ class Vopt_Client {
 	 * @param string     $path   Path starting with a slash.
 	 * @param array|null $body   JSON body.
 	 * @param array      $args   Extra wp_remote_request() args.
-	 * @return array|true|WP_Error Decoded body, true for empty 2xx responses, or an error.
+	 * @return array|true|\WP_Error Decoded body, true for empty 2xx responses, or an error.
 	 */
 	public static function request( $method, $path, $body = null, $args = array() ) {
-		if ( ! Vopt_Settings::is_configured() ) {
-			return new WP_Error( 'vopt_not_configured', __( 'The optimizer service URL and API token are not configured.', 'video-optimizer' ) );
+		if ( ! Settings::is_configured() ) {
+			return new \WP_Error( 'jcore_pakkaus_not_configured', __( 'The optimizer service URL and API token are not configured.', 'jcore-pakkaus' ) );
 		}
 
 		$args = array_merge(
@@ -35,9 +39,9 @@ class Vopt_Client {
 			$args
 		);
 
-		$args['headers']['Authorization'] = 'Bearer ' . Vopt_Settings::get( 'api_token' );
+		$args['headers']['Authorization'] = 'Bearer ' . Settings::get( 'api_token' );
 		$args['headers']['Accept']        = 'application/json';
-		$args['user-agent']               = 'video-optimizer-wp/' . VOPT_VERSION . '; ' . home_url( '/' );
+		$args['user-agent']               = 'jcore-pakkaus/' . JCORE_PAKKAUS_VERSION . '; ' . home_url( '/' );
 
 		if ( null !== $body ) {
 			$args['headers']['Content-Type'] = 'application/json';
@@ -57,10 +61,10 @@ class Vopt_Client {
 			if ( is_array( $detail ) ) {
 				$detail = wp_json_encode( $detail );
 			}
-			return new WP_Error(
-				'vopt_http_' . $code,
+			return new \WP_Error(
+				'jcore_pakkaus_http_' . $code,
 				/* translators: 1: HTTP status code, 2: error detail */
-				sprintf( __( 'Optimizer service returned HTTP %1$d: %2$s', 'video-optimizer' ), $code, $detail ),
+				sprintf( __( 'Optimizer service returned HTTP %1$d: %2$s', 'jcore-pakkaus' ), $code, $detail ),
 				array( 'status' => $code )
 			);
 		}
@@ -75,13 +79,13 @@ class Vopt_Client {
 	 * @return string
 	 */
 	public static function url( $path ) {
-		return untrailingslashit( Vopt_Settings::get( 'service_url' ) ) . $path;
+		return untrailingslashit( Settings::get( 'service_url' ) ) . $path;
 	}
 
 	/**
 	 * Service capabilities (authenticated, so it also validates the token).
 	 *
-	 * @return array|WP_Error
+	 * @return array|\WP_Error
 	 */
 	public static function info() {
 		return self::request( 'GET', '/info', null, array( 'timeout' => 10 ) );
@@ -91,7 +95,7 @@ class Vopt_Client {
 	 * Submit a job.
 	 *
 	 * @param array $payload Job payload.
-	 * @return array|WP_Error
+	 * @return array|\WP_Error
 	 */
 	public static function create_job( $payload ) {
 		return self::request( 'POST', '/jobs', $payload, array( 'timeout' => 10 ) );
@@ -101,7 +105,7 @@ class Vopt_Client {
 	 * Fetch a job.
 	 *
 	 * @param string $job_id Job ID.
-	 * @return array|WP_Error
+	 * @return array|\WP_Error
 	 */
 	public static function get_job( $job_id ) {
 		return self::request( 'GET', '/jobs/' . rawurlencode( $job_id ) );
@@ -111,7 +115,7 @@ class Vopt_Client {
 	 * Delete a job and its files on the service.
 	 *
 	 * @param string $job_id Job ID.
-	 * @return array|true|WP_Error
+	 * @return array|true|\WP_Error
 	 */
 	public static function delete_job( $job_id ) {
 		return self::request( 'DELETE', '/jobs/' . rawurlencode( $job_id ), null, array( 'timeout' => 5 ) );
@@ -122,7 +126,7 @@ class Vopt_Client {
 	 *
 	 * @param string $job_id Job ID.
 	 * @param string $dest   Destination path.
-	 * @return true|WP_Error
+	 * @return true|\WP_Error
 	 */
 	public static function download_output( $job_id, $dest ) {
 		$response = wp_remote_get(
@@ -131,22 +135,22 @@ class Vopt_Client {
 				'timeout'  => 900,
 				'stream'   => true,
 				'filename' => $dest,
-				'headers'  => array( 'Authorization' => 'Bearer ' . Vopt_Settings::get( 'api_token' ) ),
+				'headers'  => array( 'Authorization' => 'Bearer ' . Settings::get( 'api_token' ) ),
 			)
 		);
 
 		if ( is_wp_error( $response ) ) {
 			wp_delete_file( $dest );
-			return new WP_Error( 'vopt_download_retry', $response->get_error_message(), $response->get_error_data() );
+			return new \WP_Error( 'jcore_pakkaus_download_retry', $response->get_error_message(), $response->get_error_data() );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $code ) {
 			wp_delete_file( $dest );
-			return new WP_Error(
-				$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'vopt_download_retry' : 'vopt_download_failed',
+			return new \WP_Error(
+				$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'jcore_pakkaus_download_retry' : 'jcore_pakkaus_download_failed',
 				/* translators: %d: HTTP status code */
-				sprintf( __( 'Downloading the optimized video failed with HTTP %d.', 'video-optimizer' ), $code )
+				sprintf( __( 'Downloading the optimized video failed with HTTP %d.', 'jcore-pakkaus' ), $code )
 			);
 		}
 

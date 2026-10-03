@@ -2,8 +2,12 @@ name: Release
 
 # Every push to main is versioned by foonver from the conventional commits since the last tag
 # (feat → minor, fix/chore/... → patch, ! / BREAKING CHANGE → major). It syncs the version into the
-# plugin header, VOPT_VERSION, readme.txt and the service, writes the changelog to readme.txt,
-# commits and tags vX.Y.Z, and the deploy job publishes the plugin zip as a GitHub release.
+# plugin header, JCORE_PAKKAUS_VERSION, the plugin's package.json and readme.txt, and the service,
+# writes the changelog to readme.txt, and commits and tags vX.Y.Z. The publish job then builds the
+# JCORE Pakkaus zip, releases it on GitHub and registers it with update.jcore.fi.
+#
+# The plugin lives in a subdirectory, so the publish steps of jcore-update's
+# reusable-plugin-publish.yml (which works on the repository root) are inlined here.
 
 on:
   push:
@@ -11,23 +15,75 @@ on:
       - main
   pull_request:
 
+env:
+  PLUGIN_DIR: wordpress-plugin/jcore-pakkaus
+  PLUGIN_SLUG: jcore-pakkaus
+
 jobs:
   check:
-    name: Lint and build
+    name: Lint, test and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ${{ env.PLUGIN_DIR }}/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ${{ env.PLUGIN_DIR }}/pnpm-lock.yaml
+
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "7.4"
+          php-version: "8.2"
+          tools: composer, wp-cli
           coverage: none
 
-      - name: Lint PHP (minimum supported version)
-        run: find wordpress-plugin -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Install plugin dependencies
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          pnpm install --frozen-lockfile
+          composer install --no-interaction --prefer-dist
+
+      - name: Lint PHP
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: composer lint
+
+      - name: Lint JavaScript and styles
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          pnpm lint:js
+          pnpm lint:css
+
+      - name: Build assets
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: pnpm build
+
+      - name: Build translations
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: pnpm i18n
 
       - name: Test plugin lifecycle
         run: php tests/test_plugin.php
+
+      # Check what actually ships: the tree minus everything in .distignore,
+      # with vendor/ pruned to what the release bundles.
+      - name: Assemble distribution
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          composer install --no-dev --no-interaction --prefer-dist
+          mkdir -p dist/$PLUGIN_SLUG
+          rsync -a --exclude-from=.distignore --exclude=.distignore --exclude=dist ./ dist/$PLUGIN_SLUG/
+
+      # vendor/ holds the jcore-update library, which is not ours to check.
+      - name: Plugin Check
+        uses: WordPress/plugin-check-action@v1
+        with:
+          build-dir: ${{ env.PLUGIN_DIR }}/dist/${{ env.PLUGIN_SLUG }}
+          exclude-directories: vendor
 
       - uses: actions/setup-python@v5
         with:
@@ -61,40 +117,138 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Version file, version sync and the changelog all come from .foonver.toml.
       - name: Run foonver
         id: foonver
         uses: foonly/foonver@v1.2.0
         with:
           version: v1.2.0
           command: "auto"
-          version_file: "version.txt"
           changelog: "true"
-          version_sync: "wordpress-plugin/video-optimizer/video-optimizer.php,wordpress-plugin/video-optimizer/readme.txt,optimizer-service/app/__init__.py"
           push: "true"
           commit_suffix: "[skip ci]"
 
-  deploy:
-    name: Publish release
+  publish:
+    name: Build and publish the plugin
     needs: release
     if: needs.release.outputs.is_bumped == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wordpress-plugin/jcore-pakkaus
     steps:
       - uses: actions/checkout@v4
         with:
           ref: v${{ needs.release.outputs.version }}
 
-      - name: Build plugin ZIP
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ${{ env.PLUGIN_DIR }}/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer, wp-cli
+          coverage: none
+
+      - name: Build
+        run: make ci
+
+      # Same as jcore-update's reusable workflow: rename the bundled library's
+      # namespace after its exact version, so plugins bundling different
+      # versions of it cannot load each other's classes. See
+      # vendor/jcodigital/jcore-update/build/scoper-config.php for why the
+      # installed.json patch is needed.
+      - name: Scope jcore-update namespace
         run: |
-          cd wordpress-plugin
-          zip -qr ../video-optimizer.zip video-optimizer -x '*.DS_Store'
-          unzip -l ../video-optimizer.zip
+          set -e
+
+          if [ ! -d vendor/jcodigital/jcore-update ]; then
+            echo "jcore-update not bundled, skipping."
+            exit 0
+          fi
+
+          JCORE_UPDATE_VERSION=$(jq -r '.packages[] | select(.name=="jcodigital/jcore-update") | .version' vendor/composer/installed.json | sed 's/^v//')
+          export JCORE_SCOPE_PREFIX="JcoreUpdate_$(echo "$JCORE_UPDATE_VERSION" | tr '.-' '_')"
+          echo "Scoping jcore-update ($JCORE_UPDATE_VERSION) under prefix $JCORE_SCOPE_PREFIX"
+
+          curl -sL https://github.com/humbug/php-scoper/releases/download/0.18.14/php-scoper.phar -o php-scoper.phar
+
+          php php-scoper.phar add-prefix \
+            --config=vendor/jcodigital/jcore-update/build/scoper-config.php \
+            --output-dir=.scoped-tmp \
+            --force
+
+          rsync -a .scoped-tmp/ ./
+          rm -rf .scoped-tmp php-scoper.phar
+
+          jq --arg prefix "$JCORE_SCOPE_PREFIX" \
+            '(.packages[] | select(.name=="jcodigital/jcore-update") | .autoload) = {"psr-4": {($prefix + "\\Jcore\\Update\\"): "src/"}}' \
+            vendor/composer/installed.json > vendor/composer/installed.json.tmp
+          mv vendor/composer/installed.json.tmp vendor/composer/installed.json
+
+          composer dump-autoload --no-dev
+
+      - name: Zip
+        run: |
+          set -e
+          mkdir -p release .dist-build/$PLUGIN_SLUG
+          rsync -a \
+            --exclude=.dist-build/ \
+            --exclude=release/ \
+            --exclude=.distignore \
+            --exclude-from=.distignore \
+            ./ .dist-build/$PLUGIN_SLUG/
+          ( cd .dist-build && zip -qr "../release/$PLUGIN_SLUG.zip" "$PLUGIN_SLUG" )
+          rm -rf .dist-build
+          unzip -l release/$PLUGIN_SLUG.zip
+
+      - name: Extract metadata
+        id: metadata
+        run: |
+          echo "requires_wp=$(grep "Requires at least:" $PLUGIN_SLUG.php | cut -d: -f2 | xargs)" >> $GITHUB_OUTPUT
+          echo "tested_wp=$(grep "Tested up to:" $PLUGIN_SLUG.php | cut -d: -f2 | xargs)" >> $GITHUB_OUTPUT
+          echo "requires_php=$(grep "Requires PHP:" $PLUGIN_SLUG.php | cut -d: -f2 | xargs)" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.release.outputs.version }}
-          name: Video Optimizer ${{ needs.release.outputs.version }}
+          name: JCORE Pakkaus ${{ needs.release.outputs.version }}
           body: ${{ needs.release.outputs.release_notes }}
-          files: video-optimizer.zip
+          files: ${{ env.PLUGIN_DIR }}/release/${{ env.PLUGIN_SLUG }}.zip
+
+      - name: Publish to Update API
+        env:
+          UPDATE_API_KEY: ${{ secrets.UPDATE_API_KEY }}
+          RELEASE_NOTES: ${{ needs.release.outputs.release_notes }}
+          VERSION: ${{ needs.release.outputs.version }}
+          REQUIRES_WP: ${{ steps.metadata.outputs.requires_wp }}
+          TESTED_WP: ${{ steps.metadata.outputs.tested_wp }}
+          REQUIRES_PHP: ${{ steps.metadata.outputs.requires_php }}
+        run: |
+          if [ -z "$UPDATE_API_KEY" ]; then
+            echo "::warning::UPDATE_API_KEY is not set; the release is not registered with update.jcore.fi."
+            exit 0
+          fi
+
+          jq -n \
+            --arg slug "$PLUGIN_SLUG" \
+            --arg version "$VERSION" \
+            --arg download_url "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PLUGIN_SLUG.zip" \
+            --arg changelog "$RELEASE_NOTES" \
+            --arg requires_wp "$REQUIRES_WP" \
+            --arg tested_wp "$TESTED_WP" \
+            --arg requires_php "$REQUIRES_PHP" \
+            '$ARGS.named' > payload.json
+
+          curl --fail-with-body -sS -X POST https://update.jcore.fi/v1/versions \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: $UPDATE_API_KEY" \
+            --data @payload.json

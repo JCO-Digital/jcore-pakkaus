@@ -1,0 +1,92 @@
+// Status badges the plugin prints into the media library list, the
+// attachment edit screen and the media modal's attachment details.
+
+.jcore-pakkaus-cell {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+}
+
+.jcore-pakkaus-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: #f0f0f1;
+	color: #50575e;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 20px;
+	white-space: nowrap;
+
+	&::before {
+		content: "";
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: currentcolor;
+	}
+
+	&--pending,
+	&--queued,
+	&--processing {
+		background: #f0f6fc;
+		color: #135e96;
+	}
+
+	&--optimized {
+		background: #edfaef;
+		color: #007017;
+	}
+
+	&--skipped {
+		background: #fcf9e8;
+		color: #8a6116;
+	}
+
+	&--failed {
+		background: #fcf0f1;
+		color: #b32d2e;
+	}
+}
+
+.jcore-pakkaus-progress {
+	display: block;
+	overflow: hidden;
+	width: 100%;
+	max-width: 140px;
+	height: 4px;
+	border-radius: 2px;
+	background: #dcdcde;
+
+	> span {
+		display: block;
+		height: 100%;
+		background: var(--wp-admin-theme-color, #2271b1);
+	}
+}
+
+.jcore-pakkaus-sizes {
+	color: #50575e;
+	font-size: 12px;
+
+	strong {
+		color: #007017;
+	}
+}
+
+.jcore-pakkaus-message {
+	color: #646970;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.jcore-pakkaus-actions {
+	margin: 6px 0 0;
+}
+
+.fixed .column-jcore_pakkaus {
+	width: 16%;
+}

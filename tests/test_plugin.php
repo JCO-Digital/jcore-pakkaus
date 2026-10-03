@@ -1,14 +1,17 @@
 <?php
 /** Standalone regressions using the real plugin classes and a small WordPress test double. */
+use Jcore\Pakkaus\Processor;
+use Jcore\Pakkaus\Settings;
+
 error_reporting( E_ALL );
-$test_dir = sys_get_temp_dir() . '/vopt-tests-' . bin2hex( random_bytes( 6 ) );
+$test_dir = sys_get_temp_dir() . '/jcore-pakkaus-tests-' . bin2hex( random_bytes( 6 ) );
 mkdir( $test_dir . '/wp-admin/includes', 0777, true );
 foreach ( array( 'file', 'media', 'image' ) as $include ) {
 	file_put_contents( $test_dir . '/wp-admin/includes/' . $include . '.php', '<?php' );
 }
 define( 'ABSPATH', $test_dir . '/' );
 define( 'DB_NAME', 'tests' );
-define( 'VOPT_VERSION', 'test' );
+define( 'JCORE_PAKKAUS_VERSION', 'test' );
 define( 'MINUTE_IN_SECONDS', 60 );
 
 class WP_Error {
@@ -65,14 +68,15 @@ function delete_post_meta( $id, $key ) {
 }
 function get_posts( $args ) {
 	$ids = array_filter( array_keys( $GLOBALS['meta'] ), static function ( $id ) {
-		return in_array( $GLOBALS['meta'][ $id ]['_vopt_status'], Vopt_Processor::ACTIVE_STATUSES, true );
+		return in_array( $GLOBALS['meta'][ $id ]['_jcore_pakkaus_status'], Processor::ACTIVE_STATUSES, true );
 	} );
 	usort( $ids, static function ( $a, $b ) {
-		return $GLOBALS['meta'][ $a ]['_vopt_updated'] <=> $GLOBALS['meta'][ $b ]['_vopt_updated'];
+		return $GLOBALS['meta'][ $a ]['_jcore_pakkaus_updated'] <=> $GLOBALS['meta'][ $b ]['_jcore_pakkaus_updated'];
 	} );
 	return array_slice( $ids, 0, $args['posts_per_page'] );
 }
 function get_option( $key, $default = null ) { return $GLOBALS['settings']; }
+function update_option( $key, $value ) { $GLOBALS['settings'] = $value; return true; }
 function home_url( $path ) { return 'https://example.test' . $path; }
 function untrailingslashit( $text ) { return rtrim( $text, '/' ); }
 function esc_url_raw( $text, $protocols = null ) { return $text; }
@@ -110,13 +114,13 @@ function wp_generate_attachment_metadata( $id, $path ) { return array( 'filesize
 function wp_update_attachment_metadata( $id, $metadata ) { $GLOBALS['attachment_metadata'] = $metadata; }
 function do_action( $hook, ...$args ) { $GLOBALS['actions'][] = $hook; }
 
-$plugin_dir = dirname( __DIR__ ) . '/wordpress-plugin/video-optimizer/includes/';
-require $plugin_dir . 'class-vopt-settings.php';
-require $plugin_dir . 'class-vopt-client.php';
-require $plugin_dir . 'class-vopt-processor.php';
+$plugin_dir = dirname( __DIR__ ) . '/wordpress-plugin/jcore-pakkaus/includes/';
+require $plugin_dir . 'class-settings.php';
+require $plugin_dir . 'class-client.php';
+require $plugin_dir . 'class-processor.php';
 
 function reset_fixture() {
-	$GLOBALS['meta'] = array( 1 => array( '_vopt_status' => 'processing', '_vopt_job_id' => 'job-1', '_vopt_secret' => 'secret', '_vopt_updated' => 1 ) );
+	$GLOBALS['meta'] = array( 1 => array( '_jcore_pakkaus_status' => 'processing', '_jcore_pakkaus_job_id' => 'job-1', '_jcore_pakkaus_secret' => 'secret', '_jcore_pakkaus_updated' => 1 ) );
 	$GLOBALS['cache'] = array();
 	$GLOBALS['deleted'] = array();
 	$GLOBALS['requested'] = array();
@@ -140,104 +144,123 @@ $tests = array(
 			reset_fixture();
 			$GLOBALS['on_get_job'] = static function ( $job_id ) use ( $status ) {
 				// Another request changes the database; this request still has cached metadata.
-				$GLOBALS['meta'][1]['_vopt_status'] = 'optimized';
-				unset( $GLOBALS['meta'][1]['_vopt_job_id'] );
+				$GLOBALS['meta'][1]['_jcore_pakkaus_status'] = 'optimized';
+				unset( $GLOBALS['meta'][1]['_jcore_pakkaus_job_id'] );
 				return array( 'code' => 200, 'body' => json_encode( array( 'id' => $job_id, 'status' => $status, 'progress' => 99 ) ) );
 			};
-			Vopt_Processor::refresh( 1 );
-			check( 'optimized' === Vopt_Processor::status( 1 ), 'Finalized status regressed' );
+			Processor::refresh( 1 );
+			check( 'optimized' === Processor::status( 1 ), 'Finalized status regressed' );
 			check( ! $GLOBALS['deleted'], 'A stale response deleted a job' );
 		}
 		reset_fixture();
 		$GLOBALS['on_get_job'] = static function ( $job_id ) {
-			$GLOBALS['meta'][1]['_vopt_job_id'] = 'job-new';
+			$GLOBALS['meta'][1]['_jcore_pakkaus_job_id'] = 'job-new';
 			return array( 'code' => 200, 'body' => json_encode( array( 'id' => $job_id, 'status' => 'failed' ) ) );
 		};
-		Vopt_Processor::refresh( 1 );
-		check( 'job-new' === get_post_meta( 1, '_vopt_job_id', true ), 'New job was forgotten' );
+		Processor::refresh( 1 );
+		check( 'job-new' === get_post_meta( 1, '_jcore_pakkaus_job_id', true ), 'New job was forgotten' );
 		check( ! $GLOBALS['deleted'], 'New job was deleted' );
 	},
 	'stale 404 cannot fail a finalized attachment' => static function () {
 		$GLOBALS['on_get_job'] = static function ( $job_id ) {
-			$GLOBALS['meta'][1]['_vopt_status'] = 'optimized';
-			unset( $GLOBALS['meta'][1]['_vopt_job_id'] );
+			$GLOBALS['meta'][1]['_jcore_pakkaus_status'] = 'optimized';
+			unset( $GLOBALS['meta'][1]['_jcore_pakkaus_job_id'] );
 			return array( 'code' => 404, 'body' => '' );
 		};
-		Vopt_Processor::refresh( 1 );
-		check( 'optimized' === Vopt_Processor::status( 1 ), 'Stale 404 regressed status' );
+		Processor::refresh( 1 );
+		check( 'optimized' === Processor::status( 1 ), 'Stale 404 regressed status' );
 	},
 	'duplicate completed callback cannot reopen a finalized attachment' => static function () {
-		Vopt_Processor::status( 1 ); // Cache the old state before the other request finalizes.
-		$GLOBALS['meta'][1]['_vopt_status'] = 'optimized';
-		unset( $GLOBALS['meta'][1]['_vopt_job_id'] );
-		Vopt_Processor::handle_callback( 1, $GLOBALS['job'] );
-		check( 'optimized' === Vopt_Processor::status( 1 ), 'Duplicate callback reopened attachment' );
+		Processor::status( 1 ); // Cache the old state before the other request finalizes.
+		$GLOBALS['meta'][1]['_jcore_pakkaus_status'] = 'optimized';
+		unset( $GLOBALS['meta'][1]['_jcore_pakkaus_job_id'] );
+		Processor::handle_callback( 1, $GLOBALS['job'] );
+		check( 'optimized' === Processor::status( 1 ), 'Duplicate callback reopened attachment' );
 		check( ! $GLOBALS['scheduled'], 'Duplicate callback scheduled finalization' );
 	},
 	'polling errors do not starve job 21' => static function () {
 		for ( $id = 1; $id <= 21; ++$id ) {
-			$GLOBALS['meta'][$id] = array( '_vopt_status' => 'processing', '_vopt_job_id' => 'job-' . $id, '_vopt_updated' => 1 );
+			$GLOBALS['meta'][$id] = array( '_jcore_pakkaus_status' => 'processing', '_jcore_pakkaus_job_id' => 'job-' . $id, '_jcore_pakkaus_updated' => 1 );
 		}
 		$GLOBALS['on_get_job'] = static function () { return new WP_Error( 'http_request_failed', 'Temporary error' ); };
-		Vopt_Processor::poll();
-		Vopt_Processor::poll();
+		Processor::poll();
+		Processor::poll();
 		check( in_array( 'job-21', $GLOBALS['requested'], true ), 'Job 21 was starved' );
 	},
 	'download failures retry and a subsequent success swaps exactly once' => static function () {
 		foreach ( array( new WP_Error( 'http_request_failed', 'Temporary error' ), 408, 409, 425, 429, 503 ) as $failure ) {
 			reset_fixture();
 			$GLOBALS['download'] = $failure;
-			$result = Vopt_Processor::finalize( 1, $GLOBALS['job'] );
+			$result = Processor::finalize( 1, $GLOBALS['job'] );
 			check( is_wp_error( $result ), 'Expected download error' );
-			check( 'processing' === Vopt_Processor::status( 1 ), 'Retry became terminal' );
-			check( 'job-1' === get_post_meta( 1, '_vopt_job_id', true ), 'Job ID was discarded' );
+			check( 'processing' === Processor::status( 1 ), 'Retry became terminal' );
+			check( 'job-1' === get_post_meta( 1, '_jcore_pakkaus_job_id', true ), 'Job ID was discarded' );
 			check( ! $GLOBALS['deleted'], 'Completed job deleted before retry' );
-			check( isset( $GLOBALS['scheduled']['vopt_poll'] ), 'Retry polling not scheduled' );
+			check( isset( $GLOBALS['scheduled']['jcore_pakkaus_poll'] ), 'Retry polling not scheduled' );
 			check( file_get_contents( $GLOBALS['original'] ) === $GLOBALS['original_bytes'], 'Original changed on error' );
 			$GLOBALS['download'] = 200;
-			check( true === Vopt_Processor::finalize( 1, $GLOBALS['job'] ), 'Retry did not succeed' );
-			check( 'optimized' === Vopt_Processor::status( 1 ), 'Success not recorded' );
+			check( true === Processor::finalize( 1, $GLOBALS['job'] ), 'Retry did not succeed' );
+			check( 'optimized' === Processor::status( 1 ), 'Success not recorded' );
 			check( array( 'job-1' ) === $GLOBALS['deleted'], 'Success did not clean up exactly once' );
 			check( file_get_contents( $GLOBALS['original'] ) === $GLOBALS['output_bytes'], 'Output not installed' );
-			Vopt_Processor::finalize( 1, $GLOBALS['job'] );
-			check( array( 'vopt_optimized' ) === $GLOBALS['actions'], 'Finalization repeated' );
+			Processor::finalize( 1, $GLOBALS['job'] );
+			check( array( 'jcore_pakkaus_optimized' ) === $GLOBALS['actions'], 'Finalization repeated' );
 		}
 	},
 	'incomplete download retains the job for retry' => static function () {
 		$GLOBALS['job']['output']['size']++;
-		$result = Vopt_Processor::finalize( 1, $GLOBALS['job'] );
-		check( 'vopt_download_retry' === $result->get_error_code(), 'Incomplete output was not retryable' );
+		$result = Processor::finalize( 1, $GLOBALS['job'] );
+		check( 'jcore_pakkaus_download_retry' === $result->get_error_code(), 'Incomplete output was not retryable' );
 		check( ! $GLOBALS['deleted'], 'Incomplete output discarded the job' );
 		check( file_get_contents( $GLOBALS['original'] ) === $GLOBALS['original_bytes'], 'Incomplete output replaced original' );
 	},
 	'permanent download failure still terminates' => static function () {
 		$GLOBALS['download'] = 404;
-		Vopt_Processor::finalize( 1, $GLOBALS['job'] );
-		check( 'failed' === Vopt_Processor::status( 1 ), 'Permanent failure retried' );
+		Processor::finalize( 1, $GLOBALS['job'] );
+		check( 'failed' === Processor::status( 1 ), 'Permanent failure retried' );
 		check( array( 'job-1' ) === $GLOBALS['deleted'], 'Permanent failure did not clean up' );
 	},
 	'noncompleted finalization uses its existing mutex' => static function () {
-		Vopt_Processor::finalize( 1, array( 'id' => 'job-1', 'status' => 'skipped', 'input' => array(), 'output' => array() ) );
-		check( 'skipped' === Vopt_Processor::status( 1 ), 'Skipped status not applied' );
+		Processor::finalize( 1, array( 'id' => 'job-1', 'status' => 'skipped', 'input' => array(), 'output' => array() ) );
+		check( 'skipped' === Processor::status( 1 ), 'Skipped status not applied' );
 		check( array( 'job-1' ) === $GLOBALS['deleted'], 'Skipped job not cleaned up' );
 	},
 	'unavailable mutex prevents applying job state' => static function () {
 		$GLOBALS['wpdb']->available = false;
 		try {
-			Vopt_Processor::apply_job( 1, array( 'id' => 'job-1', 'status' => 'failed' ) );
-			check( 'processing' === Vopt_Processor::status( 1 ), 'State changed without mutex' );
+			Processor::apply_job( 1, array( 'id' => 'job-1', 'status' => 'failed' ) );
+			check( 'processing' === Processor::status( 1 ), 'State changed without mutex' );
 		} finally {
 			$GLOBALS['wpdb']->available = true;
 		}
 	},
 	'WordPress clamps H.264 CRF zero and preserves H.265 zero' => static function () {
-		$h264 = Vopt_Settings::sanitize( array( 'codec' => 'h264', 'crf' => 0 ) );
-		$h265 = Vopt_Settings::sanitize( array( 'codec' => 'h265', 'crf' => 0 ) );
+		$h264 = Settings::sanitize( array( 'codec' => 'h264', 'crf' => 0 ) );
+		$h265 = Settings::sanitize( array( 'codec' => 'h265', 'crf' => 0 ) );
 		check( 1 === $h264['crf'], 'H.264 accepted zero' );
 		check( 0 === $h265['crf'], 'H.265 zero changed' );
 		$GLOBALS['settings']['crf'] = 0;
-		$missing = Vopt_Settings::sanitize( array( 'codec' => 'h264' ) );
+		$missing = Settings::sanitize( array( 'codec' => 'h264' ) );
 		check( 1 === $missing['crf'], 'Invalid saved zero survived a missing form field' );
+	},
+	'partial settings updates keep the other settings and the saved token' => static function () {
+		$GLOBALS['settings'] = array( 'service_url' => 'https://optimizer.test', 'api_token' => 'token', 'crf' => 30, 'keep_original' => 1, 'codec' => 'h265' );
+		$saved = Settings::update( array( 'preset' => 'slow', 'api_token' => '', 'unknown' => 'x' ) );
+		check( 'slow' === $saved['preset'], 'Changed key not saved' );
+		check( 30 === $saved['crf'] && 1 === $saved['keep_original'] && 'h265' === $saved['codec'], 'Partial update reset other settings' );
+		check( 'token' === $saved['api_token'], 'Empty token replaced the saved one' );
+		check( ! isset( $saved['unknown'] ), 'Unknown key stored' );
+		$client = Settings::for_client();
+		check( '' === $client['api_token'] && true === $client['api_token_set'], 'Token sent to the browser' );
+	},
+	'bulk enqueue marks idle videos pending and leaves running ones alone' => static function () {
+		$GLOBALS['meta'][2] = array( '_jcore_pakkaus_status' => 'optimized', '_jcore_pakkaus_job_id' => 'old', '_jcore_pakkaus_updated' => 1 );
+		check( true === Processor::enqueue( 2 ), 'Idle video not enqueued' );
+		check( 'pending' === Processor::status( 2 ), 'Enqueued video not pending' );
+		check( '' === get_post_meta( 2, '_jcore_pakkaus_job_id', true ), 'Stale job ID kept' );
+		check( isset( $GLOBALS['scheduled']['jcore_pakkaus_poll'] ), 'Polling not scheduled' );
+		check( false === Processor::enqueue( 1 ), 'Running video re-enqueued' );
+		check( 'job-1' === get_post_meta( 1, '_jcore_pakkaus_job_id', true ), 'Running job disturbed' );
 	},
 );
 

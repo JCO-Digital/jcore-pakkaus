@@ -1,0 +1,39 @@
+# Everything listed here is left out of what ships. The release workflow
+# assembles the plugin with rsync --exclude-from=.distignore, so the paths are
+# anchored the way git anchors them.
+
+# Version control and CI.
+/.gitattributes
+/.gitignore
+
+# Editor and tooling configuration.
+/.editorconfig
+/.idea/
+/.vscode/
+/.wp/
+/Makefile
+/phpcs.xml.dist
+/webpack.config.js
+
+# Sources: compiled into build/, so the originals are not needed at runtime.
+/src/
+/node_modules/
+
+# Dependency manifests: vendor/ is installed with --no-dev before packaging.
+/composer.lock
+/package.json
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
+# Developer documentation. readme.txt is the one that ships.
+/README.md
+
+# Build artefacts and local noise.
+/languages/.gitkeep
+/release/
+/dist/
+*.zip
+*.log
+*~
+.DS_Store
+Thumbs.db
