@@ -4,7 +4,7 @@ Tags: video, compression, ffmpeg, optimization, media
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,7 +59,11 @@ The settings and the job state are removed. Optimized files, backups of original
 
 == Changelog ==
 
-= 2.0.1 (2026-10-03) =
+= 2.0.2 (2026-10-04) =
+
+* Fix: address security audit findings
+
+= v2.0.1 (2026-10-03) =
 
 * Maintenance: rename remaining Video Optimizer references to JCORE Pakkaus
 

@@ -1,6 +1,6 @@
 {
   "name": "jcore-pakkaus",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Optimizes uploaded videos with a self-hosted FFmpeg optimizer service.",
   "author": "J&Co Digital Oy <support@jco.fi>",
   "license": "GPL-2.0-or-later",
