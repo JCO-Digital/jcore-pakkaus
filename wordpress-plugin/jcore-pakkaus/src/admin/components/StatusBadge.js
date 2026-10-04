@@ -17,7 +17,7 @@ export default function StatusBadge( { status, progress } ) {
 					/* translators: %s: percentage done, e.g. 42 % */
 					__( 'Optimizing %s', 'jcore-pakkaus' ),
 					formatPercent( progress / 100 )
-			  )
+				)
 			: label;
 
 	return (

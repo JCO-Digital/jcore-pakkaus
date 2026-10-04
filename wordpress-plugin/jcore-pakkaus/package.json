@@ -13,6 +13,7 @@
     "lint:css": "wp-scripts lint-style 'src/**/*.scss'",
     "lint:php": "composer lint",
     "check": "pnpm lint:js && pnpm lint:css && pnpm lint:php",
+    "test:security": "node --test ../../tests/test_build_security.cjs",
     "i18n": "pnpm make-pot && pnpm make-mo && pnpm make-json",
     "make-pot": "wp i18n make-pot . languages/jcore-pakkaus.pot --domain=jcore-pakkaus --slug=jcore-pakkaus --exclude=vendor,node_modules,src,release,.wp",
     "make-mo": "wp i18n make-mo languages languages",
@@ -20,8 +21,14 @@
     "playground": "wp-playground-cli server --blueprint=.wp/blueprint.json --mount=.:/wordpress/wp-content/plugins/jcore-pakkaus --php=8.2 --port=8883"
   },
   "devDependencies": {
+    "@wordpress/api-fetch": "^7.56.0",
+    "@wordpress/components": "^41.0.0",
+    "@wordpress/data": "^10.56.0",
+    "@wordpress/element": "^8.8.0",
+    "@wordpress/i18n": "^6.29.0",
     "@wordpress/icons": "^14.0.1",
-    "@wordpress/scripts": "^30.27.0",
+    "@wordpress/notices": "^5.56.0",
+    "@wordpress/scripts": "^36.0.0",
     "@wordpress/url": "^4.56.0",
     "@wp-playground/cli": "^3.1.56",
     "typescript": "^6.0.3"

@@ -64,6 +64,7 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 | `WORKERS` | `1` | Videos transcoded in parallel. Each FFmpeg uses all cores, so 1–2 is usually right. |
 | `FFMPEG_THREADS` | `0` | Threads per FFmpeg (0 = auto). Lower it if you raise `WORKERS`. |
 | `MAX_INPUT_MB` | `4096` | Reject sources larger than this. |
+| `MAX_REQUEST_KB` | `64` | Maximum API JSON body size. Authentication runs before the body is read; the limit includes chunked requests. |
 | `JOB_TIMEOUT_SECONDS` | `14400` | Kill a transcode that runs longer than this. |
 | `JOB_TTL_HOURS` | `24` | Finished jobs and their files are deleted after this (the plugin deletes them sooner). |
 | `ALLOWED_HOSTS` | *(any)* | Comma-separated hosts the service may download from / call back to, e.g. `example.com,*.example.com`. Recommended. |
@@ -90,6 +91,11 @@ Callbacks are `POST`ed as JSON `{event, job}` with the headers `X-Jcore-Pakkaus-
 `X-Jcore-Pakkaus-Signature: sha256=HMAC_SHA256(callback_secret, "<timestamp>.<body>")`. The same values are
 also sent as `X-Video-Optimizer-Timestamp` / `X-Video-Optimizer-Signature` for the stand-alone Video Optimizer plugin.
 The plugin generates a fresh `callback_secret` for every job.
+
+Inputs must be self-contained video containers or elementary video streams.
+MP4/MOV, WebM/Matroska, AVI, MPEG, MPEG-TS, FLV, Ogg, ASF, H.264, HEVC and M4V
+are accepted. DASH/HLS playlists, concat manifests and image sequences are rejected
+by both probing and transcoding to prevent references to files outside the input.
 
 ---
 

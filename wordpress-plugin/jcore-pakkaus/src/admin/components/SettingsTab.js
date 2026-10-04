@@ -267,7 +267,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 							? __(
 									'Saved. Leave empty to keep it.',
 									'jcore-pakkaus'
-							  )
+								)
 							: ''
 					}
 					value={ token }
@@ -278,7 +278,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 							: __(
 									'The API_TOKEN configured on the service.',
 									'jcore-pakkaus'
-							  )
+								)
 					}
 					onChange={ setToken }
 				/>
@@ -415,7 +415,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 											/* translators: %s: frames per second */
 											__( '%s fps', 'jcore-pakkaus' ),
 											fps
-									  )
+										)
 									: __( 'Keep original', 'jcore-pakkaus' )
 						) }
 						onChange={ ( value ) =>
