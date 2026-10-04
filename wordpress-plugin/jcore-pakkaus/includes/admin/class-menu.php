@@ -1,6 +1,6 @@
 <?php
 /**
- * The Settings > Video Optimizer screen and the React app it hosts.
+ * The Settings > JCORE Pakkaus screen and the React app it hosts.
  *
  * @package Jcore\Pakkaus
  */
@@ -55,14 +55,14 @@ final class Menu {
 	}
 
 	/**
-	 * Registers the Settings > Video Optimizer sub-page.
+	 * Registers the Settings > JCORE Pakkaus sub-page.
 	 *
 	 * @return void
 	 */
 	public static function add_page(): void {
 		add_options_page(
-			__( 'Video Optimizer', 'jcore-pakkaus' ),
-			__( 'Video Optimizer', 'jcore-pakkaus' ),
+			__( 'JCORE Pakkaus', 'jcore-pakkaus' ),
+			__( 'JCORE Pakkaus', 'jcore-pakkaus' ),
 			'manage_options',
 			self::SLUG,
 			array( self::class, 'render_page' )

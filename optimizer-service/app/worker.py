@@ -45,7 +45,7 @@ class JobRunner:
         self._http = httpx.AsyncClient(
             follow_redirects=True,
             timeout=httpx.Timeout(30, read=120),
-            headers={"User-Agent": f"video-optimizer-service/{__version__}"},
+            headers={"User-Agent": f"jcore-pakkaus-service/{__version__}"},
             event_hooks={"request": [self._check_host]},
         )
 
@@ -240,6 +240,9 @@ class JobRunner:
                 signature = hmac.new(
                     job["callback_secret"].encode(), timestamp.encode() + b"." + body, hashlib.sha256
                 ).hexdigest()
+                headers["X-Jcore-Pakkaus-Timestamp"] = timestamp
+                headers["X-Jcore-Pakkaus-Signature"] = f"sha256={signature}"
+                # Legacy names, for sites still running the stand-alone Video Optimizer plugin.
                 headers["X-Video-Optimizer-Timestamp"] = timestamp
                 headers["X-Video-Optimizer-Signature"] = f"sha256={signature}"
             try:

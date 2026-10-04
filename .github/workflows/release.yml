@@ -108,14 +108,14 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Build service image
-        run: docker build -t video-optimizer-service:ci optimizer-service
+        run: docker build -t jcore-pakkaus-service:ci optimizer-service
 
       - name: Test service security on the deployed FFmpeg build
         run: |
           docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev \
             -e PYTHONDONTWRITEBYTECODE=1 \
             -v "$GITHUB_WORKSPACE/tests:/tests:ro" \
-            video-optimizer-service:ci python -m unittest discover -s /tests -v
+            jcore-pakkaus-service:ci python -m unittest discover -s /tests -v
 
   release:
     name: Bump version

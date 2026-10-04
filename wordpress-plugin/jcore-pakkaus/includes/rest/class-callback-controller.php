@@ -17,7 +17,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * POST /wp-json/jcore-pakkaus/v1/callback
  *
  * Each job carries its own random secret; the service signs "<timestamp>.<body>" with it
- * (HMAC-SHA256) and sends the result in the X-Video-Optimizer-Signature header.
+ * (HMAC-SHA256) and sends the result in the X-Jcore-Pakkaus-Signature header
+ * (X-Video-Optimizer-Signature on services older than the rename).
  */
 final class Callback_Controller extends Controller {
 
@@ -69,9 +70,10 @@ final class Callback_Controller extends Controller {
 	public function verify( \WP_REST_Request $request ) {
 		$denied = new \WP_Error( 'jcore_pakkaus_invalid_signature', 'Invalid signature.', array( 'status' => 401 ) );
 
+		// Services older than the rename only send the X-Video-Optimizer-* headers.
 		$body      = $request->get_body();
-		$timestamp = (string) $request->get_header( 'x_video_optimizer_timestamp' );
-		$signature = (string) $request->get_header( 'x_video_optimizer_signature' );
+		$timestamp = (string) ( $request->get_header( 'x_jcore_pakkaus_timestamp' ) ?? $request->get_header( 'x_video_optimizer_timestamp' ) );
+		$signature = (string) ( $request->get_header( 'x_jcore_pakkaus_signature' ) ?? $request->get_header( 'x_video_optimizer_signature' ) );
 		$data      = json_decode( $body, true );
 
 		if ( ! ctype_digit( $timestamp ) || abs( time() - (int) $timestamp ) > self::MAX_CLOCK_SKEW ) {

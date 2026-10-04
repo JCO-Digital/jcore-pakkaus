@@ -19,7 +19,7 @@ from .worker import JobRunner
 
 settings = load_settings()
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("video_optimizer")
+log = logging.getLogger("jcore_pakkaus")
 
 
 @asynccontextmanager
@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     await runner.stop()
 
 
-app = FastAPI(title="Video Optimizer Service", version=__version__, lifespan=lifespan)
+app = FastAPI(title="JCORE Pakkaus Service", version=__version__, lifespan=lifespan)
 app.add_middleware(RequestGuard, api_token=settings.api_token, max_request_bytes=settings.max_request_bytes)
 bearer = HTTPBearer(auto_error=False)
 
