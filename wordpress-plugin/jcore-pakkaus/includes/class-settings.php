@@ -49,13 +49,18 @@ final class Settings {
 	);
 
 	/**
+	 * Service URL used until the site sets its own.
+	 */
+	public const DEFAULT_SERVICE_URL = 'https://pakkaus.prototype.bojaco.com';
+
+	/**
 	 * Default option values.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public static function defaults(): array {
 		return array(
-			'service_url'         => '',
+			'service_url'         => self::DEFAULT_SERVICE_URL,
 			'api_token'           => '',
 			'auto_optimize'       => 1,
 			'codec'               => 'h264',
@@ -81,6 +86,10 @@ final class Settings {
 	public static function all(): array {
 		$stored = get_option( self::OPTION, array() );
 		$all    = array_merge( self::defaults(), is_array( $stored ) ? $stored : array() );
+
+		if ( '' === $all['service_url'] ) {
+			$all['service_url'] = self::DEFAULT_SERVICE_URL;
+		}
 
 		foreach ( array_keys( self::CONSTANTS ) as $key ) {
 			$constant = self::locked_by( $key );

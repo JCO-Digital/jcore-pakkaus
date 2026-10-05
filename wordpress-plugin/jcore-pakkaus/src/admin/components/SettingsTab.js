@@ -246,7 +246,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 					__next40pxDefaultSize
 					label={ __( 'Service URL', 'jcore-pakkaus' ) }
 					type="url"
-					placeholder="https://pakkaus.example.com"
+					placeholder="https://pakkaus.prototype.bojaco.com"
 					value={ settings.service_url }
 					disabled={ !! locked.service_url }
 					help={

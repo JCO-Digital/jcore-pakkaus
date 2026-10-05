@@ -135,8 +135,8 @@ and updates itself through `update.jcore.fi` like the other JCORE plugins.
 
 1. Download `jcore-pakkaus.zip` from the [latest release](../../releases/latest), upload it under
    **Plugins → Add New → Upload Plugin** and activate it.
-2. Go to **Settings → JCORE Pakkaus → Settings**, enter the service URL and API token, and click
-   **Save and test**.
+2. Go to **Settings → JCORE Pakkaus → Settings**, enter the API token (and the service URL, if not
+   using the default `https://pakkaus.prototype.bojaco.com`), and click **Save and test**.
 
 You can also put the connection details in `wp-config.php` (the fields are then locked):
 
