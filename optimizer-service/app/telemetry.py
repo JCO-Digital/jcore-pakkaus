@@ -26,7 +26,9 @@ job_duration = meter.create_histogram(
     "pakkaus.job.duration", unit="s", description="Time from download start to a final status.",
     explicit_bucket_boundaries_advisory=[1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400],
 )
-input_size = meter.create_counter("pakkaus.input.size", unit="By", description="Bytes of source video transcoded.")
+input_size = meter.create_counter(
+    "pakkaus.input.size", unit="By", description="Bytes of source video transcoded, by status (completed or skipped)."
+)
 output_size = meter.create_counter("pakkaus.output.size", unit="By", description="Bytes of optimized video kept.")
 callbacks = meter.create_counter(
     "pakkaus.callbacks", unit="{callback}", description="Callback outcomes: delivered, rejected or gave_up."
@@ -38,9 +40,9 @@ def record_job(status: str, codec: str, seconds: float, input_bytes: int = 0, ou
     jobs.add(1, attributes)
     job_duration.record(seconds, attributes)
     if input_bytes:
-        input_size.add(input_bytes, {"codec": codec})
+        input_size.add(input_bytes, attributes)
     if output_bytes:
-        output_size.add(output_bytes, {"codec": codec})
+        output_size.add(output_bytes, attributes)
 
 
 def observe_runner(runner) -> None:

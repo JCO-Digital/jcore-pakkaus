@@ -38,8 +38,10 @@ class TelemetryTests(unittest.TestCase):
         completed = [p for p in points["pakkaus.job.duration"]
                      if p.attributes == {"status": "completed", "codec": "h265"}]
         self.assertEqual((completed[0].count, completed[0].sum), (1, 12.5))
-        self.assertEqual([p.value for p in points["pakkaus.input.size"] if p.attributes["codec"] == "h265"], [1000])
-        self.assertEqual([p.value for p in points["pakkaus.output.size"] if p.attributes["codec"] == "h265"], [400])
+        # Labelled by status so savings can be computed from completed jobs only; skipped ones keep the original.
+        completed_only = {"status": "completed", "codec": "h265"}
+        self.assertEqual([p.value for p in points["pakkaus.input.size"] if p.attributes == completed_only], [1000])
+        self.assertEqual([p.value for p in points["pakkaus.output.size"] if p.attributes == completed_only], [400])
 
     def test_queue_gauges(self):
         queue = asyncio.Queue()
