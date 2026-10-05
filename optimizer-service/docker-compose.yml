@@ -23,6 +23,8 @@ services:
       - JOB_TTL_HOURS=${JOB_TTL_HOURS:-24}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-pakkaus}
     volumes:
       - optimizer-data:/data
     expose:

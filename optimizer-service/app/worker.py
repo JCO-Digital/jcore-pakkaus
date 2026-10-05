@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from . import __version__
+from . import __version__, telemetry
 from .config import Settings, host_allowed
 from .ffmpeg import Capabilities, FFmpegError, build_command, probe, transcode
 from .models import JobOptions
@@ -130,6 +130,7 @@ class JobRunner:
         tmp = workdir / "output.part.mp4"
         dst = self.output_path(job_id)
         started = time.monotonic()
+        codec = job["options"].get("codec", "unknown")
 
         try:
             opts = JobOptions(**job["options"])
@@ -171,22 +172,28 @@ class JobRunner:
                 message = (f"Optimized file would only be {savings:.1f}% smaller "
                            f"(minimum {opts.min_savings_percent:g}%); keeping the original.")
                 self.store.update_job(job_id, status="skipped", progress=100, output=result, message=message)
+                telemetry.record_job("skipped", codec, time.monotonic() - started, input_bytes=info.size)
                 log.info("Job %s: skipped (%s)", job_id, message)
             else:
                 self.store.update_job(job_id, status="completed", progress=100, output=result, message=None)
+                telemetry.record_job("completed", codec, time.monotonic() - started,
+                                     input_bytes=info.size, output_bytes=out.size)
                 log.info("Job %s: completed, %s -> %s bytes (-%.1f%%)", job_id, info.size, out.size, savings)
         except JobCancelled:
             log.info("Job %s: cancelled", job_id)
+            telemetry.record_job("cancelled", codec, time.monotonic() - started)
             shutil.rmtree(workdir, ignore_errors=True)
             return
         except (JobError, FFmpegError, httpx.HTTPError, OSError, ValueError) as exc:
             if job_id in self._cancelled:
                 log.info("Job %s: cancelled", job_id)
+                telemetry.record_job("cancelled", codec, time.monotonic() - started)
                 shutil.rmtree(workdir, ignore_errors=True)
                 return
             message = str(exc) or exc.__class__.__name__
             log.warning("Job %s: failed: %s", job_id, message)
             self.store.update_job(job_id, status="failed", message=message)
+            telemetry.record_job("failed", codec, time.monotonic() - started)
         finally:
             self._procs.pop(job_id, None)
             src.unlink(missing_ok=True)
@@ -249,9 +256,11 @@ class JobRunner:
                 resp = await self._http.post(job["callback_url"], content=body, headers=headers, timeout=30)
                 if resp.status_code < 300:
                     log.info("Job %s: callback delivered", job_id)
+                    telemetry.callbacks.add(1, {"result": "delivered"})
                     return
                 if 400 <= resp.status_code < 500 and resp.status_code not in (408, 409, 425, 429):
                     log.warning("Job %s: callback rejected with HTTP %s, not retrying", job_id, resp.status_code)
+                    telemetry.callbacks.add(1, {"result": "rejected"})
                     return
                 log.warning("Job %s: callback returned HTTP %s", job_id, resp.status_code)
             except Exception as exc:  # noqa: BLE001 - network errors, allowlist errors, ...
@@ -259,6 +268,7 @@ class JobRunner:
             if attempt + 1 < self.settings.callback_retries:
                 await asyncio.sleep(CALLBACK_BACKOFF[min(attempt, len(CALLBACK_BACKOFF) - 1)])
         log.error("Job %s: giving up on callback; the client has to poll", job_id)
+        telemetry.callbacks.add(1, {"result": "gave_up"})
 
     # -------------------------------------------------------------- cleanup
 

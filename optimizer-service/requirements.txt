@@ -3,3 +3,5 @@ starlette==1.7.0
 uvicorn[standard]==0.54.0
 httpx==0.28.1
 itsdangerous==2.2.0
+opentelemetry-sdk==1.45.0
+opentelemetry-exporter-otlp-proto-http==1.45.0

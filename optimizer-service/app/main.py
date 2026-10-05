@@ -11,7 +11,7 @@ from fastapi.security import HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admin
+from . import __version__, admin, telemetry
 from .config import host_allowed, load_settings
 from .ffmpeg import detect_capabilities
 from .models import JobCreate
@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
              caps.version, caps.codecs["h264"], caps.codecs["h265"], caps.can_tonemap)
     runner = JobRunner(settings, store, caps)
     await runner.start()
+    telemetry.observe_runner(runner)
     app.state.store, app.state.runner, app.state.caps = store, runner, caps
     yield
     await runner.stop()
@@ -45,7 +46,7 @@ def authenticate(token: str) -> str | None:
     return app.state.store.authenticate_api_key(token)
 
 
-app = FastAPI(title="JCORE Pakkaus Service", version=__version__, lifespan=lifespan)
+app = FastAPI(title="JCORE Pakkaus Service", version=__version__, lifespan=lifespan, telemetry=telemetry.CONFIG)
 app.state.settings = settings
 if settings.dashboard_enabled:
     app.include_router(admin.router)
