@@ -98,6 +98,8 @@ Outside the compose file (local development, the Dockerfile build pack), the das
 | `ALLOWED_HOSTS` | *(any)* | Comma-separated hosts the service may download from / call back to, e.g. `example.com,*.example.com`. Recommended. |
 | `CALLBACK_RETRIES` | `5` | Callback attempts (with back-off) before relying on the plugin's polling. |
 | `LOG_LEVEL` | `info` | |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(none)* | OTLP/HTTP endpoint for metrics, e.g. `http://prometheus:9090/api/v1/otlp`. Exports HTTP request metrics and `pakkaus_*` job, byte, callback and queue metrics. Unset disables export. |
+| `OTEL_SERVICE_NAME` | `pakkaus` | The `job` label on exported metrics. The default comes from the compose file. |
 
 Resources: transcoding is CPU-bound. A 1-minute 1080p clip takes roughly 15–60 s on 4 cores with
 the `medium` preset. Scratch space under `/data` needs about 2× the largest video.
