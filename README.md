@@ -198,9 +198,12 @@ plugin) via the [`Release`](.github/workflows/release.yml) workflow. On every pu
 3. writes it to `version.txt` and syncs it into the plugin header, `JCORE_PAKKAUS_VERSION`, the
    plugin's `package.json`, `readme.txt`'s `Stable tag` and the service's `__version__`, regenerates
    the `== Changelog ==` section of `readme.txt`, then commits (`[skip ci]`) and tags `vX.Y.Z`,
-4. builds the plugin (`make ci`), scopes its bundled [jcore-update](https://github.com/JCO-Digital/jcore-update)
+4. if anything under `wordpress-plugin/jcore-pakkaus` changed since the previous tag, builds the
+   plugin (`make ci`), scopes its bundled [jcore-update](https://github.com/JCO-Digital/jcore-update)
    library the same way the shared JCORE publish workflow does, publishes a GitHub release with
    `jcore-pakkaus.zip` and registers the version with `update.jcore.fi` (needs the `UPDATE_API_KEY` secret).
+   Service-only changes still get a version and tag, but no plugin release, so sites aren't offered
+   an update that changes nothing. Published plugin versions can therefore skip numbers.
 
 So: write conventional commit messages (e.g. `feat(plugin): add poster image generation`,
 `fix(service): handle videos without audio`), and never bump versions by hand.
