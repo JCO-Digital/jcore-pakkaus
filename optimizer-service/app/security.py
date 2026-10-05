@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hmac
+from typing import Callable
 
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -11,10 +11,15 @@ class RequestGuard:
     """Authenticate before reading JSON and bound actual bytes, including chunked bodies."""
 
     PUBLIC_PATHS = frozenset({"/health", "/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"})
+    # The dashboard authenticates with its session cookie instead; its bodies are still bounded.
+    SESSION_PREFIX = "/admin"
 
-    def __init__(self, app: ASGIApp, api_token: str, max_request_bytes: int) -> None:
+    def __init__(
+        self, app: ASGIApp, authenticate: Callable[[str], str | None], max_request_bytes: int
+    ) -> None:
+        """`authenticate` maps a bearer token to the id of its API key, or None if it is invalid."""
         self.app = app
-        self.api_token = api_token.encode()
+        self.authenticate = authenticate
         self.max_request_bytes = max_request_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -23,13 +28,17 @@ class RequestGuard:
             return
 
         headers = Headers(scope=scope)
-        scheme, _, token = headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not hmac.compare_digest(token.encode(), self.api_token):
-            await JSONResponse(
-                {"detail": "Invalid or missing API token"}, status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )(scope, receive, send)
-            return
+        path = scope["path"]
+        if path != self.SESSION_PREFIX and not path.startswith(self.SESSION_PREFIX + "/"):
+            scheme, _, token = headers.get("authorization", "").partition(" ")
+            key_id = self.authenticate(token) if scheme.lower() == "bearer" and token else None
+            if key_id is None:
+                await JSONResponse(
+                    {"detail": "Invalid or missing API token"}, status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )(scope, receive, send)
+                return
+            scope.setdefault("state", {})["api_key_id"] = key_id
 
         length = headers.get("content-length")
         if length is not None:

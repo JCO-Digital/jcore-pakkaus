@@ -3,8 +3,9 @@ name: Release
 # Every push to main is versioned by foonver from the conventional commits since the last tag
 # (feat → minor, fix/chore/... → patch, ! / BREAKING CHANGE → major). It syncs the version into the
 # plugin header, JCORE_PAKKAUS_VERSION, the plugin's package.json and readme.txt, and the service,
-# writes the changelog to readme.txt, and commits and tags vX.Y.Z. The publish job then builds the
-# JCORE Pakkaus zip, releases it on GitHub and registers it with update.jcore.fi.
+# writes the changelog to readme.txt, and commits and tags vX.Y.Z. If anything under PLUGIN_DIR
+# changed since the previous tag, the publish job then builds the JCORE Pakkaus zip, releases it on
+# GitHub and registers it with update.jcore.fi. Service-only changes are versioned but not published.
 #
 # The plugin lives in a subdirectory, so the publish steps of jcore-update's
 # reusable-plugin-publish.yml (which works on the repository root) are inlined here.
@@ -128,10 +129,24 @@ jobs:
       is_bumped: ${{ steps.foonver.outputs.is_bumped }}
       version: ${{ steps.foonver.outputs.version }}
       release_notes: ${{ steps.foonver.outputs.release_notes }}
+      plugin_changed: ${{ steps.plugin.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Compared with the pushed commit rather than the new tag, because foonver's version
+      # sync touches the plugin header, package.json and readme.txt on every bump.
+      - name: Check for plugin changes
+        id: plugin
+        run: |
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA" 2>/dev/null || true)
+          if [ -z "$previous" ] || ! git diff --quiet "$previous" "$GITHUB_SHA" -- "$PLUGIN_DIR"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No changes in $PLUGIN_DIR since $previous; the plugin is not published."
+          fi
 
       # Version file, version sync and the changelog all come from .foonver.toml.
       - name: Run foonver
@@ -147,7 +162,7 @@ jobs:
   publish:
     name: Build and publish the plugin
     needs: release
-    if: needs.release.outputs.is_bumped == 'true'
+    if: needs.release.outputs.is_bumped == 'true' && needs.release.outputs.plugin_changed == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-latest
