@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
              caps.version, caps.codecs["h264"], caps.codecs["h265"], caps.can_tonemap)
     runner = JobRunner(settings, store, caps)
     await runner.start()
-    telemetry.observe_runner(runner)
+    telemetry.start(runner)
     app.state.store, app.state.runner, app.state.caps = store, runner, caps
     yield
     await runner.stop()
