@@ -34,7 +34,8 @@ class TelemetryTests(unittest.TestCase):
         points = collect()
 
         jobs = {p.attributes["status"]: p.value for p in points["pakkaus.jobs"] if p.attributes["codec"] == "h265"}
-        self.assertEqual(jobs, {"completed": 1, "failed": 1})
+        self.assertEqual(jobs["completed"], 1)
+        self.assertEqual(jobs["failed"], 1)
         completed = [p for p in points["pakkaus.job.duration"]
                      if p.attributes == {"status": "completed", "codec": "h265"}]
         self.assertEqual((completed[0].count, completed[0].sum), (1, 12.5))
@@ -43,14 +44,23 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual([p.value for p in points["pakkaus.input.size"] if p.attributes == completed_only], [1000])
         self.assertEqual([p.value for p in points["pakkaus.output.size"] if p.attributes == completed_only], [400])
 
-    def test_queue_gauges(self):
+    def test_start_reports_queue_and_zeroes_counters(self):
         queue = asyncio.Queue()
         queue.put_nowait("a")
         queue.put_nowait("b")
-        telemetry.observe_runner(SimpleNamespace(queue=queue, active={"c"}))
+        telemetry.start(SimpleNamespace(queue=queue, active={"c"}))
         points = collect()
         self.assertEqual(points["pakkaus.queue.waiting"][-1].value, 2)
         self.assertEqual(points["pakkaus.jobs.active"][-1].value, 1)
+
+        # Every series exists before its first job, so Prometheus sees the first increment.
+        jobs = {(p.attributes["status"], p.attributes["codec"]) for p in points["pakkaus.jobs"]}
+        self.assertLessEqual({(s, c) for s in ("completed", "skipped", "failed", "cancelled")
+                              for c in ("h264", "h265")}, jobs)
+        results = {p.attributes["result"] for p in points["pakkaus.callbacks"]}
+        self.assertLessEqual({"delivered", "rejected", "gave_up"}, results)
+        self.assertIn({"status": "completed", "codec": "h264"},
+                      [dict(p.attributes) for p in points["pakkaus.output.size"]])
 
     def test_health_checks_are_excluded(self):
         exclude = telemetry.CONFIG["exclude"]

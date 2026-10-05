@@ -5,9 +5,12 @@ is set. Without an endpoint the instruments are no-ops.
 """
 from __future__ import annotations
 
+from typing import get_args
+
 from opentelemetry import metrics
 
 from . import __version__
+from .models import JobOptions
 
 # Request telemetry for FastAPI(): metrics only, and not for health checks or static files.
 CONFIG = {
@@ -45,8 +48,21 @@ def record_job(status: str, codec: str, seconds: float, input_bytes: int = 0, ou
         output_size.add(output_bytes, attributes)
 
 
-def observe_runner(runner) -> None:
-    """Report queue depth from the job runner as gauges."""
+def start(runner) -> None:
+    """Start every known counter series at zero and report queue depth from the job runner as gauges.
+
+    Prometheus can't see the first increment of a series that first arrives already at 1, so without the zeros
+    `increase()` misses the first job of each status and codec.
+    """
+    for codec in get_args(JobOptions.model_fields["codec"].annotation):
+        for status in ("completed", "skipped", "failed", "cancelled"):
+            jobs.add(0, {"status": status, "codec": codec})
+        for status in ("completed", "skipped"):
+            input_size.add(0, {"status": status, "codec": codec})
+        output_size.add(0, {"status": "completed", "codec": codec})
+    for result in ("delivered", "rejected", "gave_up"):
+        callbacks.add(0, {"result": result})
+
     def waiting(_options):
         yield metrics.Observation(runner.queue.qsize())
 
