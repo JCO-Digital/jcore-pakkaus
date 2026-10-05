@@ -4,7 +4,7 @@ Tags: video, compression, ffmpeg, optimization, media
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.1.0
+Stable tag: 2.1.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,7 +59,11 @@ The settings and the job state are removed. Optimized files, backups of original
 
 == Changelog ==
 
-= 2.1.0 (2026-10-05) =
+= 2.1.1 (2026-10-05) =
+
+* Maintenance: service - require the dashboard settings in the Coolify compose file
+
+= v2.1.0 (2026-10-05) =
 
 * Feature: service - add admin dashboard with API keys and usage
 * CI: only publish the plugin when it changed
