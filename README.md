@@ -44,15 +44,19 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
    - **Build pack:** `Docker Compose`
    - **Base directory:** `/optimizer-service`
    - **Docker Compose location:** `/docker-compose.yml`
-3. **Environment variables:** set up the [dashboard](#dashboard) to create an API key per site, and/or
-   set `OPTIMIZER_API_TOKEN` to a long random secret (the compose file passes it to the container as
-   `API_TOKEN`):
-   ```sh
-   openssl rand -hex 32
-   ```
-4. **Domains:** set the domain for the `optimizer` service with port 8000, e.g.
-   `https://pakkaus.example.com:8000` (Coolify proxies HTTPS on 443 → container port 8000).
-5. Deploy. `https://pakkaus.example.com/health` should return `{"status":"ok",...}`.
+3. **Domains:** give the `optimizer` service its domain, e.g. `https://pakkaus.example.com`. Coolify
+   fills `SERVICE_URL_OPTIMIZER` from it, which sets `PUBLIC_URL`, and proxies HTTPS to port 8000.
+4. **GitHub OAuth app:** register one under the JCO-Digital organization (*Settings → Developer
+   settings → OAuth apps*) with the callback URL `https://pakkaus.example.com/admin/auth/github`. If
+   the organization restricts third-party OAuth app access, an owner has to approve the app,
+   otherwise every membership check fails.
+5. **Environment variables:** fill in the required `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`;
+   the deploy fails without them. Coolify generates the session secret. Optionally set
+   `ADMIN_USERS` to limit sign-in to some members, and `OPTIMIZER_API_TOKEN` (passed to the
+   container as `API_TOKEN`) for sites that still use a shared token.
+6. Deploy. `https://pakkaus.example.com/health` should return `{"status":"ok",...}`.
+7. Open `https://pakkaus.example.com/admin`, create a key per site and enter it in the plugin's
+   settings.
 
 ### Dashboard
 
@@ -60,31 +64,27 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 failures, video minutes, data processed and saved, processing time, jobs per day). Sign-in is with
 GitHub: only active members of `GITHUB_ORG` can sign in (pending invitations don't count).
 
-1. Register an OAuth app under the JCO-Digital organization (*Settings → Developer settings → OAuth
-   apps*) with the callback URL `https://pakkaus.example.com/admin/auth/github`. If the organization
-   restricts third-party OAuth app access, an owner has to approve the app, otherwise every membership
-   check fails.
-2. Set `PUBLIC_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET`
-   (`openssl rand -hex 32`), and optionally `ADMIN_USERS` to limit sign-in to some members.
-3. Open `https://pakkaus.example.com/admin`, create a key per site and enter it in the plugin's
-   settings.
-
 Each key only sees the jobs it created. Revoking a key stops it working immediately; its usage
 history is kept. Usage is recorded per job and outlives `JOB_TTL_HOURS`. `API_TOKEN` keeps working
 alongside the keys and appears in the dashboard as its own row, so existing sites can be moved to
-keys one at a time. Without the GitHub variables the dashboard is off and `API_TOKEN` is required.
+keys one at a time.
+
+Outside the compose file (local development, the Dockerfile build pack), the dashboard is off unless
+`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `PUBLIC_URL` and `SESSION_SECRET` are all set, and
+`API_TOKEN` is then required.
 
 > Alternatively use the **Dockerfile** build pack with base directory `/optimizer-service`, port `8000`,
-> and add a persistent storage volume mounted at `/data`.
+> and add a persistent storage volume mounted at `/data`. Then set the variables below yourself,
+> including `PUBLIC_URL` and `SESSION_SECRET` (`openssl rand -hex 32`).
 
 ### Service configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `API_TOKEN` | *(none)* | Bearer token clients can send (min. 24 characters), in addition to dashboard keys. Required when the dashboard is off. In the compose file / Coolify it is set via `OPTIMIZER_API_TOKEN`. |
-| `PUBLIC_URL` | *(none)* | The service's public URL, e.g. `https://pakkaus.example.com`. Required for the dashboard (GitHub callback URL, secure cookies). |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | *(none)* | GitHub OAuth app for the dashboard. Setting both enables `/admin`. |
-| `SESSION_SECRET` | *(none)* | Signs dashboard sessions (min. 32 characters). Required for the dashboard; changing it signs everyone out. |
+| `PUBLIC_URL` | *(none)* | The service's public URL, e.g. `https://pakkaus.example.com`. Required for the dashboard (GitHub callback URL, secure cookies). Set from the Coolify domain by the compose file. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | *(none)* | GitHub OAuth app for the dashboard. Setting both enables `/admin`. **Required** by the compose file. |
+| `SESSION_SECRET` | *(none)* | Signs dashboard sessions (min. 32 characters). Required for the dashboard; changing it signs everyone out. Generated by Coolify through the compose file. |
 | `GITHUB_ORG` | `JCO-Digital` | Only active members of this GitHub organization can sign in to the dashboard. |
 | `ADMIN_USERS` | *(any member)* | Comma-separated GitHub usernames allowed to sign in. Checked on every request, so removing someone signs them out. |
 | `WORKERS` | `1` | Videos transcoded in parallel. Each FFmpeg uses all cores, so 1–2 is usually right. |
