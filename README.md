@@ -44,14 +44,35 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
    - **Build pack:** `Docker Compose`
    - **Base directory:** `/optimizer-service`
    - **Docker Compose location:** `/docker-compose.yml`
-3. **Environment variables:** set `OPTIMIZER_API_TOKEN` to a long random secret (the compose
-   file passes it to the container as `API_TOKEN`):
+3. **Environment variables:** set up the [dashboard](#dashboard) to create an API key per site, and/or
+   set `OPTIMIZER_API_TOKEN` to a long random secret (the compose file passes it to the container as
+   `API_TOKEN`):
    ```sh
    openssl rand -hex 32
    ```
 4. **Domains:** set the domain for the `optimizer` service with port 8000, e.g.
    `https://pakkaus.example.com:8000` (Coolify proxies HTTPS on 443 → container port 8000).
 5. Deploy. `https://pakkaus.example.com/health` should return `{"status":"ok",...}`.
+
+### Dashboard
+
+`/admin` is a dashboard for creating and revoking API keys and for seeing each key's usage (jobs,
+failures, video minutes, data processed and saved, processing time, jobs per day). Sign-in is with
+GitHub: only active members of `GITHUB_ORG` can sign in (pending invitations don't count).
+
+1. Register an OAuth app under the JCO-Digital organization (*Settings → Developer settings → OAuth
+   apps*) with the callback URL `https://pakkaus.example.com/admin/auth/github`. If the organization
+   restricts third-party OAuth app access, an owner has to approve the app, otherwise every membership
+   check fails.
+2. Set `PUBLIC_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `SESSION_SECRET`
+   (`openssl rand -hex 32`), and optionally `ADMIN_USERS` to limit sign-in to some members.
+3. Open `https://pakkaus.example.com/admin`, create a key per site and enter it in the plugin's
+   settings.
+
+Each key only sees the jobs it created. Revoking a key stops it working immediately; its usage
+history is kept. Usage is recorded per job and outlives `JOB_TTL_HOURS`. `API_TOKEN` keeps working
+alongside the keys and appears in the dashboard as its own row, so existing sites can be moved to
+keys one at a time. Without the GitHub variables the dashboard is off and `API_TOKEN` is required.
 
 > Alternatively use the **Dockerfile** build pack with base directory `/optimizer-service`, port `8000`,
 > and add a persistent storage volume mounted at `/data`.
@@ -60,7 +81,12 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 
 | Variable | Default | Description |
 |---|---|---|
-| `API_TOKEN` | **required** | Bearer token clients must send (min. 24 characters). In the compose file / Coolify it is set via `OPTIMIZER_API_TOKEN`. |
+| `API_TOKEN` | *(none)* | Bearer token clients can send (min. 24 characters), in addition to dashboard keys. Required when the dashboard is off. In the compose file / Coolify it is set via `OPTIMIZER_API_TOKEN`. |
+| `PUBLIC_URL` | *(none)* | The service's public URL, e.g. `https://pakkaus.example.com`. Required for the dashboard (GitHub callback URL, secure cookies). |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | *(none)* | GitHub OAuth app for the dashboard. Setting both enables `/admin`. |
+| `SESSION_SECRET` | *(none)* | Signs dashboard sessions (min. 32 characters). Required for the dashboard; changing it signs everyone out. |
+| `GITHUB_ORG` | `JCO-Digital` | Only active members of this GitHub organization can sign in to the dashboard. |
+| `ADMIN_USERS` | *(any member)* | Comma-separated GitHub usernames allowed to sign in. Checked on every request, so removing someone signs them out. |
 | `WORKERS` | `1` | Videos transcoded in parallel. Each FFmpeg uses all cores, so 1–2 is usually right. |
 | `FFMPEG_THREADS` | `0` | Threads per FFmpeg (0 = auto). Lower it if you raise `WORKERS`. |
 | `MAX_INPUT_MB` | `4096` | Reject sources larger than this. |
@@ -76,7 +102,8 @@ the `medium` preset. Scratch space under `/data` needs about 2× the largest vid
 
 ### API
 
-All endpoints except `/health` require `Authorization: Bearer <API_TOKEN>`. Interactive docs are at `/docs`.
+All endpoints except `/health` require `Authorization: Bearer <key>`, with a key from the dashboard or
+`API_TOKEN`. Jobs are only visible to the key that created them. Interactive docs are at `/docs`.
 
 | Method | Path | |
 |---|---|---|

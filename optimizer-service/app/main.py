@@ -7,14 +7,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__
+from . import __version__, admin
 from .config import host_allowed, load_settings
 from .ffmpeg import detect_capabilities
 from .models import JobCreate
 from .security import RequestGuard
-from .store import Store, public_job
+from .store import ENV_KEY_ID, Store, public_job
 from .worker import JobRunner
 
 settings = load_settings()
@@ -36,23 +38,42 @@ async def lifespan(app: FastAPI):
     await runner.stop()
 
 
+def authenticate(token: str) -> str | None:
+    """The API key id for a bearer token: a dashboard-created key, or the API_TOKEN variable."""
+    if settings.api_token and hmac.compare_digest(token.encode(), settings.api_token.encode()):
+        return ENV_KEY_ID
+    return app.state.store.authenticate_api_key(token)
+
+
 app = FastAPI(title="JCORE Pakkaus Service", version=__version__, lifespan=lifespan)
-app.add_middleware(RequestGuard, api_token=settings.api_token, max_request_bytes=settings.max_request_bytes)
+app.state.settings = settings
+if settings.dashboard_enabled:
+    app.include_router(admin.router)
+    app.mount("/admin/static", StaticFiles(directory=admin.STATIC_DIR), name="admin-static")
+    app.add_middleware(
+        SessionMiddleware, secret_key=settings.session_secret, session_cookie="pakkaus_session",
+        max_age=12 * 3600, path="/admin", same_site="lax", https_only=settings.public_url.startswith("https://"),
+    )
+    app.add_middleware(admin.DashboardHeaders)
+# Outermost, so requests are authenticated and bounded before anything else runs.
+app.add_middleware(RequestGuard, authenticate=authenticate, max_request_bytes=settings.max_request_bytes)
+# Only documents the scheme in /docs; RequestGuard does the checking.
 bearer = HTTPBearer(auto_error=False)
 
 
-def require_token(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> None:
-    if credentials is None or not hmac.compare_digest(
-        credentials.credentials.encode(), settings.api_token.encode()
-    ):
+def require_token(request: Request, _=Depends(bearer)) -> str:
+    key_id = getattr(request.state, "api_key_id", None)
+    if key_id is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Invalid or missing API token", headers={"WWW-Authenticate": "Bearer"}
         )
+    return key_id
 
 
-def get_job_or_404(request: Request, job_id: str) -> dict:
+def get_job_or_404(request: Request, job_id: str, key_id: str = Depends(require_token)) -> dict:
     job = request.app.state.store.get_job(job_id)
-    if job is None:
+    # Each key only sees its own jobs.
+    if job is None or job["api_key_id"] != key_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     return job
 
@@ -79,8 +100,8 @@ def info(request: Request) -> dict:
     }
 
 
-@app.post("/jobs", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_token)])
-def create_job(request: Request, body: JobCreate) -> dict:
+@app.post("/jobs", status_code=status.HTTP_201_CREATED)
+def create_job(request: Request, body: JobCreate, key_id: str = Depends(require_token)) -> dict:
     caps = request.app.state.caps
     if not caps.codecs.get(body.options.codec):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Codec {body.options.codec} is not available")
@@ -97,27 +118,26 @@ def create_job(request: Request, body: JobCreate) -> dict:
         "callback_secret": body.callback_secret,
         "options": body.options.model_dump(),
         "metadata": body.metadata,
+        "api_key_id": key_id,
     })
     request.app.state.runner.enqueue(job["id"])
     return public_job(job)
 
 
-@app.get("/jobs/{job_id}", dependencies=[Depends(require_token)])
-def get_job(request: Request, job_id: str) -> dict:
-    return public_job(get_job_or_404(request, job_id))
+@app.get("/jobs/{job_id}")
+def get_job(job: dict = Depends(get_job_or_404)) -> dict:
+    return public_job(job)
 
 
-@app.get("/jobs/{job_id}/output", dependencies=[Depends(require_token)])
-def get_output(request: Request, job_id: str) -> FileResponse:
-    job = get_job_or_404(request, job_id)
+@app.get("/jobs/{job_id}/output")
+def get_output(request: Request, job_id: str, job: dict = Depends(get_job_or_404)) -> FileResponse:
     path = request.app.state.runner.output_path(job_id)
     if job["status"] != "completed" or not path.is_file():
         raise HTTPException(status.HTTP_409_CONFLICT, f"Job is {job['status']}; no output available")
     return FileResponse(path, media_type="video/mp4", filename=f"{job_id}.mp4")
 
 
-@app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_token)])
+@app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(get_job_or_404)])
 def delete_job(request: Request, job_id: str) -> Response:
-    get_job_or_404(request, job_id)
     request.app.state.runner.remove(job_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
