@@ -4,7 +4,7 @@ Tags: video, compression, ffmpeg, optimization, media
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,7 +59,12 @@ The settings and the job state are removed. Optimized files, backups of original
 
 == Changelog ==
 
-= 2.3.0 (2026-10-05) =
+= 2.4.0 (2026-10-13) =
+
+* Feature: plugin - compare optimized videos with originals
+* Fix: plugin - enforce high-severity dependency audits
+
+= v2.3.0 (2026-10-05) =
 
 * Feature: service - export OpenTelemetry metrics over OTLP
 * Fix: service - start counter series at zero
