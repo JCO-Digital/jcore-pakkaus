@@ -1018,3 +1018,213 @@ $tones: (
 		}
 	}
 }
+
+// ── Compare modal ─────────────────────────────────────────────────────────
+// Rendered in a portal outside .jcore-pakkaus, so it is styled on its own.
+
+.components-modal__frame.jcore-pakkaus-compare.has-size-large {
+	max-width: min(1280px, calc(100% - 32px));
+	max-height: calc(100% - 48px);
+}
+
+.jcore-pakkaus-compare {
+	$controls-height: 300px; // Header, controls and footer around the stage.
+
+	&__stage {
+		position: relative;
+		overflow: hidden;
+		--fit-width: calc((100vh - #{$controls-height}) * var(--ratio));
+		width: min(100%, max(240px, var(--fit-width)));
+		margin: 0 auto;
+		border-radius: 6px;
+		background: #000;
+		aspect-ratio: var(--ratio);
+
+		&.is-side {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 4px;
+			width: 100%;
+			border-radius: 0;
+			background: none;
+			aspect-ratio: auto;
+		}
+	}
+
+	&__pane {
+		position: relative;
+		margin: 0;
+
+		.is-slider > &,
+		.is-single > & {
+			position: absolute;
+			inset: 0;
+		}
+
+		.is-side > & {
+			overflow: hidden;
+			max-height: calc(100vh - #{$controls-height});
+			border-radius: 6px;
+			background: #000;
+			aspect-ratio: var(--ratio);
+		}
+
+		// Tall videos don't fill their column; keep the pair together.
+		.is-side > &.is-original {
+			justify-self: end;
+		}
+
+		.is-side > &.is-optimized {
+			justify-self: start;
+		}
+
+		.is-slider > &.is-original {
+			z-index: 1;
+			clip-path: inset(0 calc(100% - var(--position)) 0 0);
+		}
+
+		.is-single > &.is-original {
+			display: none;
+		}
+
+		video {
+			display: block;
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+		}
+
+		figcaption {
+			position: absolute;
+			top: 10px;
+			padding: 2px 8px;
+			border-radius: 4px;
+			background: rgba(0, 0, 0, 0.6);
+			color: #fff;
+			font-size: 12px;
+			font-weight: 500;
+			line-height: 20px;
+			pointer-events: none;
+		}
+
+		&.is-original figcaption {
+			left: 10px;
+		}
+
+		&.is-optimized figcaption {
+			right: 10px;
+		}
+	}
+
+	// An invisible range input over the whole frame: drag anywhere, or use
+	// the arrow keys.
+	&__handle {
+		position: absolute;
+		inset: 0;
+		z-index: 3;
+		width: 100%;
+		height: 100%;
+		margin: 0;
+		opacity: 0;
+		cursor: ew-resize;
+		appearance: none;
+	}
+
+	&__divider {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: var(--position);
+		z-index: 2;
+		width: 2px;
+		margin-left: -1px;
+		background: #fff;
+		box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+		pointer-events: none;
+
+		&::after {
+			content: "‹ ›";
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			width: 36px;
+			height: 36px;
+			border-radius: 50%;
+			background: #fff;
+			box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+			color: #1e1e1e;
+			font-size: 18px;
+			font-weight: 600;
+			line-height: 34px;
+			text-align: center;
+			transform: translate(-50%, -50%);
+		}
+
+		.jcore-pakkaus-compare__handle:focus-visible + &::after {
+			outline: 2px solid var(--wp-admin-theme-color, #2271b1);
+			outline-offset: 2px;
+		}
+	}
+
+	&__controls {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 12px;
+		margin-top: 12px;
+	}
+
+	&__seek {
+		flex: 1;
+		min-width: 160px;
+		margin: 0;
+		accent-color: var(--wp-admin-theme-color, #2271b1);
+	}
+
+	&__time {
+		color: #646970;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__modes {
+		display: flex;
+		gap: 4px;
+	}
+
+	&__footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 12px;
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid #f0f0f1;
+	}
+
+	&__facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 28px;
+		margin: 0;
+
+		dt {
+			color: #646970;
+			font-size: 11px;
+			font-weight: 500;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		dd {
+			margin: 0;
+			font-weight: 600;
+			font-variant-numeric: tabular-nums;
+
+			&.is-saving {
+				color: tone(success, fg);
+			}
+		}
+	}
+}

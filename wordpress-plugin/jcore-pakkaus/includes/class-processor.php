@@ -688,6 +688,21 @@ final class Processor {
 	}
 
 	/**
+	 * URL of the backup file, if one exists.
+	 *
+	 * @param int $id Attachment ID.
+	 * @return string
+	 */
+	public static function backup_url( $id ) {
+		if ( ! self::backup_path( $id ) ) {
+			return '';
+		}
+		$meta    = get_post_meta( $id, self::META_BACKUP, true );
+		$uploads = wp_get_upload_dir();
+		return $uploads['baseurl'] . '/' . ltrim( $meta['file'], '/' );
+	}
+
+	/**
 	 * Clean up the service job and backup file when an attachment is deleted.
 	 *
 	 * @param int $id Attachment ID.

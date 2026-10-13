@@ -177,6 +177,7 @@ final class Library {
 		$stats    = is_array( $stats ) ? $stats : array();
 		$status   = Processor::status( $id );
 		$thumb_id = (int) get_post_thumbnail_id( $id );
+		$backup   = Processor::backup_path( $id );
 
 		return array(
 			'id'             => $id,
@@ -198,7 +199,9 @@ final class Library {
 			'optimized_size' => (int) ( $stats['optimized_size'] ?? 0 ),
 			'before'         => self::stream( $stats['input'] ?? array() ),
 			'after'          => self::stream( $stats['output'] ?? array() ),
-			'has_backup'     => '' !== Processor::backup_path( $id ),
+			'has_backup'     => '' !== $backup,
+			'backup_url'     => $backup ? Processor::backup_url( $id ) : '',
+			'backup_size'    => $backup ? (int) filesize( $backup ) : 0,
 		);
 	}
 

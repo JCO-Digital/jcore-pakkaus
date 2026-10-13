@@ -7,6 +7,7 @@ import { connection, Icon, upload, video as videoIcon } from '@wordpress/icons';
 import { getVideos, optimizeAll, optimizeVideo, restoreVideo } from '../api';
 import { CONFIG, FILTERS } from '../constants';
 import { cx, errorMessage, formatNumber } from '../utils';
+import CompareModal from './CompareModal';
 import StatCards from './StatCards';
 import VideoTable, { Pagination } from './VideoTable';
 
@@ -144,6 +145,7 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 	const [ isLoading, setIsLoading ] = useState( false );
 	const [ busy, setBusy ] = useState( {} );
 	const [ isBulkBusy, setIsBulkBusy ] = useState( false );
+	const [ comparing, setComparing ] = useState( null );
 	const latestRequest = useRef( 0 );
 	const { createSuccessNotice, createErrorNotice } =
 		useDispatch( noticesStore );
@@ -368,6 +370,7 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 							busy={ busy }
 							canOptimize={ isConfigured }
 							onAction={ runAction }
+							onCompare={ setComparing }
 						/>
 
 						<Pagination
@@ -378,6 +381,13 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 						/>
 					</div>
 				</>
+			) }
+
+			{ comparing && (
+				<CompareModal
+					video={ comparing }
+					onClose={ () => setComparing( null ) }
+				/>
 			) }
 		</div>
 	);

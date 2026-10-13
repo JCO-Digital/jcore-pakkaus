@@ -1,6 +1,12 @@
 import { Button, Spinner } from '@wordpress/components';
 import { __, _n, sprintf } from '@wordpress/i18n';
-import { backup, Icon, update, video as videoIcon } from '@wordpress/icons';
+import {
+	backup,
+	Icon,
+	seen,
+	update,
+	video as videoIcon,
+} from '@wordpress/icons';
 import StatusBadge from './StatusBadge';
 import {
 	cx,
@@ -73,7 +79,7 @@ function SizeInfo( { video } ) {
 	);
 }
 
-function VideoRow( { video, busyAction, canOptimize, onAction } ) {
+function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
 	const isRunning = RUNNING.includes( video.status );
 	const isActive = video.filter === 'active';
 	const isDone = [ 'optimized', 'skipped' ].includes( video.status );
@@ -158,6 +164,16 @@ function VideoRow( { video, busyAction, canOptimize, onAction } ) {
 						<Button
 							size="compact"
 							variant="tertiary"
+							icon={ seen }
+							onClick={ () => onCompare( video ) }
+						>
+							{ __( 'Compare', 'jcore-pakkaus' ) }
+						</Button>
+					) }
+					{ ! busyAction && video.has_backup && ! isRunning && (
+						<Button
+							size="compact"
+							variant="tertiary"
 							icon={ backup }
 							onClick={ () => onAction( video, 'restore' ) }
 						>
@@ -179,6 +195,7 @@ function VideoRow( { video, busyAction, canOptimize, onAction } ) {
  * @param {Object}   props.busy        Running action per video ID.
  * @param {boolean}  props.canOptimize Whether the service is configured.
  * @param {Function} props.onAction    Called with ( video, 'optimize'|'restore' ).
+ * @param {Function} props.onCompare   Called with a video that has a kept original.
  */
 export default function VideoTable( {
 	items,
@@ -186,6 +203,7 @@ export default function VideoTable( {
 	busy,
 	canOptimize,
 	onAction,
+	onCompare,
 } ) {
 	if ( ! items.length ) {
 		return (
@@ -222,6 +240,7 @@ export default function VideoTable( {
 						busyAction={ busy[ video.id ] }
 						canOptimize={ canOptimize }
 						onAction={ onAction }
+						onCompare={ onCompare }
 					/>
 				) ) }
 			</tbody>
