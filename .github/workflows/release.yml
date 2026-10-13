@@ -57,7 +57,7 @@ jobs:
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
           pnpm test:security
-          pnpm audit
+          pnpm audit --audit-level high
           composer audit --locked --no-interaction
 
       - name: Lint JavaScript and styles

@@ -24,10 +24,12 @@ updates, and bulk queueing. It creates and cleans up its own temporary files; it
 access a live WordPress site.
 
 From `wordpress-plugin/jcore-pakkaus`, run `pnpm install --frozen-lockfile`,
-`pnpm test:security`, and `pnpm audit` to verify the build dependencies. The local
+`pnpm test:security`, and `pnpm audit --audit-level high` to verify the build
+dependencies. Only high and critical advisories fail the audit: the JavaScript
+dependencies are build tools that never ship with the plugin. The local
 `braces@3.0.3` patch bounds parser and AST recursion to address
 GHSA-vfj7-8cjw-p6xm, for which no upstream patch is published. Its four regressions
 exercise the actual build dependency, including direct AST input. This single
 advisory is excluded from the version-based registry audit because the lockfile
-applies the patch; all other advisories remain enforced. Remove the patch and
-exception together when a tested upstream fix is available.
+applies the patch; all other high and critical advisories remain enforced.
+Remove the patch and exception together when a tested upstream fix is available.

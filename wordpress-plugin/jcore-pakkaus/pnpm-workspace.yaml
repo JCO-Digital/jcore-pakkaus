@@ -8,8 +8,11 @@ allowBuilds:
 # Patched transitives where the current build tools still request older ranges.
 overrides:
   js-yaml@^5: ^5.4.1
+  katex@^0.16: ^0.18.2
+  postcss-selector-parser@^6: ^7.1.6
   qs@^6: ^6.16.0
   serialize-javascript@^6: ^7.0.5
+  smol-toml@~1.7: ^1.8.1
   uuid@^8: ^11.1.1
 
 patchedDependencies:
