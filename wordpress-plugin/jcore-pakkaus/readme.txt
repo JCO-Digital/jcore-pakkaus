@@ -4,7 +4,7 @@ Tags: video, image, webp, compression, optimization
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.4.0
+Stable tag: 2.5.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,7 +89,13 @@ The settings and the job state are removed. Optimized files, WebP versions, back
 
 == Changelog ==
 
-= 2.4.0 (2026-10-13) =
+= 2.5.0 (2026-10-20) =
+
+* Feature: plugin - optimize images with WebP versions and smaller PNGs
+* Feature: service - optimize images on their own queue
+* Documentation: explain serving the WebP versions with Nginx
+
+= v2.4.0 (2026-10-13) =
 
 * Feature: plugin - compare optimized videos with originals
 * Fix: plugin - enforce high-severity dependency audits
