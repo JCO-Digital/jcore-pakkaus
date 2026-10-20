@@ -1,6 +1,7 @@
 # JCORE Pakkaus
 
-Automatic video optimization for WordPress, powered by a self-hosted FFmpeg service.
+Automatic video and image optimization for WordPress, powered by a self-hosted service (FFmpeg for
+video, Pillow and pngquant for images).
 
 ```
 ┌────────────┐  1. POST /jobs (source URL, options)   ┌──────────────────────┐
@@ -14,9 +15,10 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 └────────────┘                                        └──────────────────────┘
 ```
 
-1. A video is uploaded → the plugin sends a job to the service (only the URL, no upload from PHP).
-2. The service downloads the video, transcodes it to a web-optimized MP4, and calls WordPress back.
-3. The plugin downloads the result and swaps it in for the original attachment file, regenerating metadata.
+1. A video or image is uploaded → the plugin sends a job to the service (only URLs, no upload from PHP).
+2. The service downloads the files, optimizes them, and calls WordPress back.
+3. The plugin downloads the results and puts them in place: an optimized video replaces the original
+   attachment file; images get WebP versions next to their files and smaller PNG files.
    If the callback can't get through, WP-Cron polls the service every minute while jobs are in flight.
 
 | Directory | What |
@@ -24,8 +26,11 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 | [`optimizer-service/`](optimizer-service) | The FFmpeg service (Docker, deploy on Coolify) |
 | [`wordpress-plugin/jcore-pakkaus/`](wordpress-plugin/jcore-pakkaus) | The WordPress plugin, **JCORE Pakkaus** ([development notes](wordpress-plugin/jcore-pakkaus/README.md)) |
 | [`dev/`](dev) | Local end-to-end stack (WordPress + MariaDB + service) |
+| [`docs/`](docs) | [Serving the WebP versions with Nginx](docs/webp-nginx.md) |
 
 ## What the optimization does
+
+### Videos
 
 - Re-encodes to **H.264** (default, plays everywhere) or **H.265/HEVC** MP4 with a configurable CRF and preset.
 - **Downscales** to a max resolution (applied to the short side, so portrait phone videos work; never upscales).
@@ -34,6 +39,34 @@ Automatic video optimization for WordPress, powered by a self-hosted FFmpeg serv
 - Optional frame-rate cap, AAC audio (copied when already small enough), or audio removal.
 - Strips metadata (GPS, device info) and adds `faststart` so playback starts before the download finishes.
 - **Keeps the original** if the result isn't at least N % smaller (default 5 %).
+
+### Images
+
+JPEG and PNG attachments, together with every resized copy WordPress made of them (the unscaled
+original of a big upload is left out; it is never shown).
+
+- **WebP versions** are saved next to each file with the extension appended: `photo.jpg` →
+  `photo.jpg.webp`. The originals stay untouched, and **Nginx sends the WebP to browsers that accept it
+  and the original to everything else**, by the `Accept` header. This needs a few lines of web server
+  configuration: see [Serving the WebP versions with Nginx](docs/webp-nginx.md).
+  JPEGs become lossy WebP (quality 80); PNGs lossless WebP by default, so graphics and text stay sharp.
+- **PNG recompression** replaces the PNG files themselves, for every browser. WordPress saves resized PNG
+  files in full colour and barely compressed. *Lossy* (the default) reduces them to a palette of at most
+  256 colours with pngquant when that stays within the quality setting, and otherwise falls back to
+  *lossless*: the same pixels, with an unused alpha channel dropped, an exact palette where the image has
+  256 colours or fewer, and maximum compression. JPEG files are not recompressed.
+- The WebP version is made from the recompressed PNG, and each result is only kept if it is at least N %
+  smaller (default 5 %) than what it would replace.
+- WebP versions are upright (EXIF orientation applied), keep the colour profile and drop other metadata.
+- When something rewrites the files (the image editor, regenerating thumbnails), WebP versions that no
+  longer match are deleted and the image is optimized again. Deleting a file deletes its WebP version.
+- Images have their own queue and workers on the service, so a long video transcode never holds them up.
+- **Other image optimizers pause it.** While EWWW Image Optimizer, ShortPixel, Smush, Imagify, Optimole,
+  WebP Express, Converter for Media, TinyPNG, Modern Image Formats or a similar plugin is active, image
+  optimization does nothing at all: no new jobs, no results put in place, no WebP files deleted (several
+  of them name theirs `photo.jpg.webp` too). A warning shows on the plugin screen, the media library and
+  the Plugins screen. Videos keep going. Image jobs already sent wait and resume when the plugin is
+  deactivated, as long as the service still has them (`JOB_TTL_HOURS`).
 
 ---
 
@@ -91,8 +124,11 @@ Outside the compose file (local development, the Dockerfile build pack), the das
 | `ADMIN_USERS` | *(any member)* | Comma-separated GitHub usernames allowed to sign in. Checked on every request, so removing someone signs them out. |
 | `WORKERS` | `1` | Videos transcoded in parallel. Each FFmpeg uses all cores, so 1–2 is usually right. |
 | `FFMPEG_THREADS` | `0` | Threads per FFmpeg (0 = auto). Lower it if you raise `WORKERS`. |
-| `MAX_INPUT_MB` | `4096` | Reject sources larger than this. |
-| `MAX_REQUEST_KB` | `64` | Maximum API JSON body size. Authentication runs before the body is read; the limit includes chunked requests. |
+| `IMAGE_WORKERS` | `4` | Image jobs processed in parallel, from their own queue. Each takes about one core while it encodes. |
+| `MAX_INPUT_MB` | `4096` | Reject video sources larger than this. |
+| `MAX_IMAGE_MB` | `50` | Skip image files larger than this. |
+| `MAX_IMAGE_MEGAPIXELS` | `50` | Skip images with more pixels than this, checked from the header before decoding. |
+| `MAX_REQUEST_KB` | `256` | Maximum API JSON body size. Authentication runs before the body is read; the limit includes chunked requests. An image job with 100 files fits comfortably. |
 | `JOB_TIMEOUT_SECONDS` | `14400` | Kill a transcode that runs longer than this. |
 | `JOB_TTL_HOURS` | `24` | Finished jobs and their files are deleted after this (the plugin deletes them sooner). |
 | `ALLOWED_HOSTS` | *(any)* | Comma-separated hosts the service may download from / call back to, e.g. `example.com,*.example.com`. Recommended. |
@@ -113,9 +149,11 @@ All endpoints except `/health` require `Authorization: Bearer <key>`, with a key
 |---|---|---|
 | `GET` | `/health` | Liveness (unauthenticated) |
 | `GET` | `/info` | FFmpeg version, available codecs, queue size |
-| `POST` | `/jobs` | Create a job: `{source_url, callback_url?, callback_secret?, options?, metadata?}` |
+| `POST` | `/jobs` | Create a video job: `{source_url, callback_url?, callback_secret?, options?, metadata?}` |
+| `POST` | `/jobs/images` | Create an image job: `{files: [{name, url}, …], callback_url?, callback_secret?, options?, metadata?}` (up to 100 files) |
 | `GET` | `/jobs/{id}` | Job status: `queued → downloading → processing → completed / skipped / failed` |
 | `GET` | `/jobs/{id}/output` | Download the optimized MP4 |
+| `GET` | `/jobs/{id}/files/{index}/{variant}` | Download one result of an image job: `optimized` (the PNG, smaller) or `webp` |
 | `DELETE` | `/jobs/{id}` | Cancel / delete a job and its files |
 
 Callbacks are `POST`ed as JSON `{event, job}` with the headers `X-Jcore-Pakkaus-Timestamp` and
@@ -123,10 +161,18 @@ Callbacks are `POST`ed as JSON `{event, job}` with the headers `X-Jcore-Pakkaus-
 also sent as `X-Video-Optimizer-Timestamp` / `X-Video-Optimizer-Signature` for the stand-alone Video Optimizer plugin.
 The plugin generates a fresh `callback_secret` for every job.
 
-Inputs must be self-contained video containers or elementary video streams.
+An image job's `output.files` lists one entry per file, in the order sent, with its `size`, `format`,
+dimensions and the `variants` that were kept (`{"webp": {"size": …}, "optimized": {"size": …}}`), or an
+`error` for a file that couldn't be processed; the others still are. The job is `skipped` when nothing
+got smaller enough, and `failed` only when every file failed. `output.size` is what a browser that
+takes WebP downloads in total.
+
+Video inputs must be self-contained video containers or elementary video streams.
 MP4/MOV, WebM/Matroska, AVI, MPEG, MPEG-TS, FLV, Ogg, ASF, H.264, HEVC and M4V
 are accepted. DASH/HLS playlists, concat manifests and image sequences are rejected
 by both probing and transcoding to prevent references to files outside the input.
+Image inputs must be JPEG or PNG; Pillow is restricted to those two decoders, and pngquant only runs on
+files Pillow has already accepted.
 
 ---
 
@@ -147,8 +193,11 @@ define( 'JCORE_PAKKAUS_SERVICE_URL', 'https://pakkaus.example.com' );
 define( 'JCORE_PAKKAUS_API_TOKEN', '...' );
 ```
 
-**Requirements:** the service must be able to reach the site (to download the video and send the
+**Requirements:** the service must be able to reach the site (to download the files and send the
 callback). Sites behind HTTP basic auth or on `localhost` won't work unless the service can reach them.
+
+**For WebP:** add the [Nginx rules](docs/webp-nginx.md) to the site, then check them under
+**Settings → JCORE Pakkaus → Settings → WebP delivery**.
 
 **Coming from the stand-alone "Video Optimizer" plugin?** Activating JCORE Pakkaus deactivates it and
 moves its settings, job state, statistics and backups over; the old `VIDEO_OPTIMIZER_*` constants keep
@@ -156,26 +205,33 @@ working. Delete the old plugin afterwards.
 
 ### Using it
 
-- New video uploads are optimized automatically (can be turned off; small files can be skipped).
-- **Settings → JCORE Pakkaus** shows the library at a glance (videos, optimized share, space saved,
-  running jobs), every video with its status, sizes and actions, and an *Optimize all* button for videos
-  uploaded before the plugin was set up. Running jobs update live.
+- New video and image uploads are optimized automatically (each can be turned off; small videos can be
+  skipped).
+- **Settings → JCORE Pakkaus** has a *Videos* and an *Images* tab: the library at a glance (count,
+  optimized share, space saved, running jobs), every attachment with its status, sizes and actions, a
+  side-by-side comparison of original and optimized, and an *Optimize all* button for files uploaded
+  before the plugin was set up. Running jobs update live.
 - **Media → Library (list view)** shows an *Optimization* column with a status badge and savings,
-  plus *Optimize video / Re-optimize / Restore original* row actions and an *Optimize videos* bulk action.
+  plus *Optimize / Re-optimize / Restore original* row actions and an *Optimize videos and images* bulk
+  action.
 - The same status and actions appear in the attachment details sidebar.
 - If the extension changes (e.g. `.mov` → `.mp4`) the attachment is renamed and URLs in post content
   are updated. Page builders storing URLs elsewhere can hook into `jcore_pakkaus_url_changed`.
-- Turn on *Keep a backup of the original* to be able to restore originals.
+- Turn on *Keep a backup of the original* to be able to restore original videos and PNG files
+  (`logo.png` is kept as `logo.original.png`). *Restore original* on an image also deletes its WebP
+  versions.
 
 ### WP-CLI
 
 ```sh
-wp pakkaus test                 # check the connection
-wp pakkaus optimize --all       # optimize the existing library
-wp pakkaus optimize 123 456     # specific attachments
-wp pakkaus status               # table of all videos
-wp pakkaus poll --wait          # sync now instead of waiting for WP-Cron
-wp pakkaus restore 123          # restore a backed-up original
+wp pakkaus test                       # check the connection
+wp pakkaus optimize --all             # optimize the existing library
+wp pakkaus optimize --all --type=image  # only images (or --type=video)
+wp pakkaus optimize 123 456           # specific attachments
+wp pakkaus status [--type=image]      # table of all videos and images
+wp pakkaus poll --wait                # sync now instead of waiting for WP-Cron
+wp pakkaus restore 123                # restore a backed-up original / delete an image's WebP versions
+wp pakkaus serving                    # check that the web server hands out the WebP versions
 ```
 
 ### Hooks
@@ -183,8 +239,10 @@ wp pakkaus restore 123          # restore a backed-up original
 | Hook | Type | |
 |---|---|---|
 | `jcore_pakkaus_should_optimize( bool $optimize, int $id )` | filter | Skip auto-optimization for certain uploads |
+| `jcore_pakkaus_conflicting_plugins( array $plugins )` | filter | Plugin directories (`slug => name`) that pause image optimization while active |
 | `jcore_pakkaus_job_payload( array $payload, int $id )` | filter | Change options per video (e.g. a different CRF) |
-| `jcore_pakkaus_optimized( int $id, array $result, array $job )` | action | After the file was replaced |
+| `jcore_pakkaus_image_job_payload( array $payload, int $id )` | filter | Change options per image; keep the files in order |
+| `jcore_pakkaus_optimized( int $id, array $result, array $job )` | action | After the results were put in place |
 | `jcore_pakkaus_url_changed( string $old, string $new, int[] $post_ids )` | action | After URLs in content were rewritten |
 
 ---

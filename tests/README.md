@@ -15,12 +15,17 @@ Security tests verify authentication before body reads, actual request byte limi
 patched Range parsing, rejection of reference-bearing media manifests, and successful
 MP4/MOV/WebM/MKV/AVI processing. Dashboard tests cover the GitHub sign-in flow (with GitHub
 mocked), CSRF checks, API key hashing and revocation, per-key job isolation, and usage that
-outlives expired jobs. Media tests skip when FFmpeg is unavailable locally;
+outlives expired jobs. Image tests cover the JPEG/PNG-only decoder allowlist, the pixel limit,
+EXIF orientation, colour profiles, transparency and CMYK in WebP versions, pixel-exact lossless PNG
+recompression, pngquant (skipped when it isn't installed), per-file failures that don't sink the
+other files, and the image job API. Media tests skip when FFmpeg is unavailable locally;
 CI also runs the suite inside the production image, where FFmpeg is installed.
 The PHP suite runs the actual plugin classes with WordPress HTTP, metadata-cache, and mutex
 test doubles. It checks stale responses, poll fairness, retry followed by successful file
 replacement, permanent errors, duplicate finalization, settings validation and partial
-updates, and bulk queueing. It creates and cleans up its own temporary files; it does not
+updates, bulk queueing, and for images: which files are sent, installing WebP versions and smaller
+PNG files all-or-nothing with backups, files that changed meanwhile, restoring, and dropping WebP
+versions when something rewrites the files. It creates and cleans up its own temporary files; it does not
 access a live WordPress site.
 
 From `wordpress-plugin/jcore-pakkaus`, run `pnpm install --frozen-lockfile`,
