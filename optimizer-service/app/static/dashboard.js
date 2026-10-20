@@ -137,7 +137,8 @@ function renderKpis() {
   $('kpi-jobs').textContent = number.format(jobs);
   $('kpi-jobs-sub').textContent = `${number.format(total('completed'))} optimized · ${number.format(total('skipped'))} skipped · ${number.format(total('failed'))} failed`;
   $('kpi-video').textContent = duration(total('video_seconds'));
-  $('kpi-video-sub').textContent = `${bytes(input)} of source video`;
+  const imageJobs = total('image_jobs');
+  $('kpi-video-sub').textContent = `${bytes(input)} of source media · ${number.format(imageJobs)} image job${imageJobs === 1 ? '' : 's'}`;
   $('kpi-saved').textContent = bytes(saved);
   $('kpi-saved-sub').textContent = input ? `${decimal.format((saved / input) * 100)}% of the source size` : 'Nothing processed yet';
   $('kpi-time').textContent = duration(total('processing_seconds'));

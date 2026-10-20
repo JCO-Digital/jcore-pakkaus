@@ -1,8 +1,9 @@
 FROM python:3.13-slim
 
 # ffmpeg from Debian ships libx264, libx265 and zimg (zscale) for HDR tonemapping.
+# pngquant does the lossy PNG compression; Pillow (from pip) brings its own WebP encoder.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg curl \
+    && apt-get install -y --no-install-recommends ffmpeg pngquant curl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

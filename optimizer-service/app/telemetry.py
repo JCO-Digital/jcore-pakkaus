@@ -22,6 +22,7 @@ CONFIG = {
 
 meter = metrics.get_meter("jcore_pakkaus", __version__)
 
+# Image jobs are labelled with the codec "image".
 jobs = meter.create_counter(
     "pakkaus.jobs", unit="{job}", description="Jobs that reached a final status, by status and codec."
 )
@@ -30,9 +31,12 @@ job_duration = meter.create_histogram(
     explicit_bucket_boundaries_advisory=[1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400],
 )
 input_size = meter.create_counter(
-    "pakkaus.input.size", unit="By", description="Bytes of source video transcoded, by status (completed or skipped)."
+    "pakkaus.input.size", unit="By", description="Bytes of source media processed, by status (completed or skipped)."
 )
-output_size = meter.create_counter("pakkaus.output.size", unit="By", description="Bytes of optimized video kept.")
+output_size = meter.create_counter(
+    "pakkaus.output.size", unit="By",
+    description="Bytes of optimized media kept; for images, what browsers that accept the new formats download.",
+)
 callbacks = meter.create_counter(
     "pakkaus.callbacks", unit="{callback}", description="Callback outcomes: delivered, rejected or gave_up."
 )
@@ -54,7 +58,7 @@ def start(runner) -> None:
     Prometheus can't see the first increment of a series that first arrives already at 1, so without the zeros
     `increase()` misses the first job of each status and codec.
     """
-    for codec in get_args(JobOptions.model_fields["codec"].annotation):
+    for codec in (*get_args(JobOptions.model_fields["codec"].annotation), "image"):
         for status in ("completed", "skipped", "failed", "cancelled"):
             jobs.add(0, {"status": status, "codec": codec})
         for status in ("completed", "skipped"):
@@ -64,12 +68,14 @@ def start(runner) -> None:
         callbacks.add(0, {"result": result})
 
     def waiting(_options):
-        yield metrics.Observation(runner.queue.qsize())
+        yield metrics.Observation(runner.queue.qsize(), {"kind": "video"})
+        yield metrics.Observation(runner.image_queue.qsize(), {"kind": "image"})
 
     def active(_options):
-        yield metrics.Observation(len(runner.active))
+        yield metrics.Observation(len(runner.active) - len(runner.image_active), {"kind": "video"})
+        yield metrics.Observation(len(runner.image_active), {"kind": "image"})
 
     meter.create_observable_gauge("pakkaus.queue.waiting", [waiting], unit="{job}",
-                                  description="Jobs waiting for a worker.")
+                                  description="Jobs waiting for a worker, by kind (video or image).")
     meter.create_observable_gauge("pakkaus.jobs.active", [active], unit="{job}",
-                                  description="Jobs being downloaded or transcoded.")
+                                  description="Jobs being processed, by kind (video or image).")

@@ -41,3 +41,50 @@ class JobCreate(BaseModel):
     callback_secret: str | None = Field(None, min_length=16, max_length=256)
     options: JobOptions = Field(default_factory=JobOptions)
     metadata: dict[str, Any] = Field(default_factory=dict, description="Opaque data echoed back to the client.")
+
+
+# Formats an image job can add next to each file, named <file>.<format>. AVIF can join this list later.
+ImageFormat = Literal["webp"]
+MAX_IMAGE_FILES = 100
+
+
+class ImageOptions(BaseModel):
+    formats: list[ImageFormat] = Field(
+        default_factory=lambda: ["webp"],
+        description="Modern formats to create next to each file. Empty only recompresses PNG files.",
+    )
+    webp_quality: int = Field(80, ge=1, le=100, description="Lossy WebP quality, used for JPEG sources.")
+    png_webp_lossless: bool = Field(
+        True, description="Encode PNG sources as lossless WebP so graphics and text stay sharp; otherwise lossy."
+    )
+    png: Literal["off", "lossless", "lossy"] = Field(
+        "lossy",
+        description="Recompress PNG files. `lossy` reduces them to a 256-colour palette with pngquant when that "
+        "stays within png_quality, and falls back to `lossless` when it doesn't.",
+    )
+    png_quality: int = Field(
+        80, ge=10, le=100, description="Highest pngquant quality to aim for; results more than 20 below it are discarded."
+    )
+    min_savings_percent: float = Field(
+        5, ge=0, le=100, description="Keep a file's result only when it is at least this much smaller."
+    )
+
+    @model_validator(mode="after")
+    def dedupe_formats(self) -> ImageOptions:
+        self.formats = list(dict.fromkeys(self.formats))
+        return self
+
+
+class ImageFile(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255, description="Opaque label echoed back, e.g. the size name.")
+    url: HttpUrl
+
+
+class ImageJobCreate(BaseModel):
+    files: list[ImageFile] = Field(
+        ..., min_length=1, max_length=MAX_IMAGE_FILES, description="The image and its resized copies."
+    )
+    callback_url: HttpUrl | None = None
+    callback_secret: str | None = Field(None, min_length=16, max_length=256)
+    options: ImageOptions = Field(default_factory=ImageOptions)
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Opaque data echoed back to the client.")
