@@ -102,6 +102,16 @@ final class Client {
 	}
 
 	/**
+	 * Submit an image job: an image and its resized copies.
+	 *
+	 * @param array $payload Job payload.
+	 * @return array|\WP_Error
+	 */
+	public static function create_image_job( $payload ) {
+		return self::request( 'POST', '/jobs/images', $payload, array( 'timeout' => 10 ) );
+	}
+
+	/**
 	 * Fetch a job.
 	 *
 	 * @param string $job_id Job ID.
@@ -122,17 +132,42 @@ final class Client {
 	}
 
 	/**
-	 * Stream the optimized file to disk.
+	 * Stream the optimized video to disk.
 	 *
 	 * @param string $job_id Job ID.
 	 * @param string $dest   Destination path.
 	 * @return true|\WP_Error
 	 */
 	public static function download_output( $job_id, $dest ) {
+		return self::download( '/jobs/' . rawurlencode( $job_id ) . '/output', $dest, 900 );
+	}
+
+	/**
+	 * Stream one result of an image job to disk.
+	 *
+	 * @param string $job_id  Job ID.
+	 * @param int    $index   Position of the file in the job.
+	 * @param string $variant `optimized`, or a format such as `webp`.
+	 * @param string $dest    Destination path.
+	 * @return true|\WP_Error
+	 */
+	public static function download_image_output( $job_id, $index, $variant, $dest ) {
+		return self::download( '/jobs/' . rawurlencode( $job_id ) . '/files/' . (int) $index . '/' . rawurlencode( $variant ), $dest, 120 );
+	}
+
+	/**
+	 * Stream a file from the service to disk.
+	 *
+	 * @param string $path    Service path.
+	 * @param string $dest    Destination path.
+	 * @param int    $timeout Seconds.
+	 * @return true|\WP_Error Errors worth retrying have the code jcore_pakkaus_download_retry.
+	 */
+	private static function download( $path, $dest, $timeout ) {
 		$response = wp_remote_get(
-			self::url( '/jobs/' . rawurlencode( $job_id ) . '/output' ),
+			self::url( $path ),
 			array(
-				'timeout'  => 900,
+				'timeout'  => $timeout,
 				'stream'   => true,
 				'filename' => $dest,
 				'headers'  => array( 'Authorization' => 'Bearer ' . Settings::get( 'api_token' ) ),
@@ -150,7 +185,7 @@ final class Client {
 			return new \WP_Error(
 				$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'jcore_pakkaus_download_retry' : 'jcore_pakkaus_download_failed',
 				/* translators: %d: HTTP status code */
-				sprintf( __( 'Downloading the optimized video failed with HTTP %d.', 'jcore-pakkaus' ), $code )
+				sprintf( __( 'Downloading the optimized file failed with HTTP %d.', 'jcore-pakkaus' ), $code )
 			);
 		}
 

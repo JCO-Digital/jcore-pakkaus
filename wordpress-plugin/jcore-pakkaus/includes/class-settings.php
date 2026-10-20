@@ -41,6 +41,11 @@ final class Settings {
 	public const RESOLUTIONS = array( 0, 2160, 1440, 1080, 720, 480 );
 
 	/**
+	 * How PNG files are recompressed: not at all, without changing a pixel, or to a 256-colour palette.
+	 */
+	public const PNG_MODES = array( 'off', 'lossless', 'lossy' );
+
+	/**
 	 * Constants that can lock a setting, most preferred first.
 	 */
 	private const CONSTANTS = array(
@@ -75,6 +80,13 @@ final class Settings {
 			'min_savings_percent' => 5,
 			'min_file_size_mb'    => 1,
 			'keep_original'       => 0,
+			'image_auto_optimize' => 1,
+			'image_webp'          => 1,
+			'image_webp_quality'  => 80,
+			'image_png'           => 'lossy',
+			'image_png_quality'   => 80,
+			'image_png_lossless'  => 1,
+			'image_min_savings'   => 5,
 		);
 	}
 
@@ -163,6 +175,33 @@ final class Settings {
 	}
 
 	/**
+	 * Image options in the format the optimizer service expects.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function image_options(): array {
+		$s = self::all();
+
+		return array(
+			'formats'             => $s['image_webp'] ? array( 'webp' ) : array(),
+			'webp_quality'        => (int) $s['image_webp_quality'],
+			'png_webp_lossless'   => (bool) $s['image_png_lossless'],
+			'png'                 => $s['image_png'],
+			'png_quality'         => (int) $s['image_png_quality'],
+			'min_savings_percent' => (float) $s['image_min_savings'],
+		);
+	}
+
+	/**
+	 * Whether the image settings ask for anything at all.
+	 *
+	 * @return bool
+	 */
+	public static function images_enabled(): bool {
+		return (bool) self::get( 'image_webp' ) || 'off' !== self::get( 'image_png' );
+	}
+
+	/**
 	 * Settings as the admin app sees them: the token is never sent back, only
 	 * whether one is saved, plus which settings wp-config.php locks.
 	 *
@@ -222,7 +261,7 @@ final class Settings {
 		$stored             = get_option( self::OPTION, array() );
 		$clean['api_token'] = '' !== $token ? $token : ( $stored['api_token'] ?? '' );
 
-		foreach ( array( 'auto_optimize', 'remove_audio', 'tonemap_hdr', 'strip_metadata', 'keep_original' ) as $flag ) {
+		foreach ( array( 'auto_optimize', 'remove_audio', 'tonemap_hdr', 'strip_metadata', 'keep_original', 'image_auto_optimize', 'image_webp', 'image_png_lossless' ) as $flag ) {
 			$clean[ $flag ] = empty( $input[ $flag ] ) ? 0 : 1;
 		}
 
@@ -238,6 +277,11 @@ final class Settings {
 		$clean['audio_bitrate']       = self::clamp( $input, 'audio_bitrate', 32, 512, $current['audio_bitrate'] );
 		$clean['min_savings_percent'] = self::clamp( $input, 'min_savings_percent', 0, 100, $current['min_savings_percent'] );
 		$clean['min_file_size_mb']    = self::clamp( $input, 'min_file_size_mb', 0, 100000, $current['min_file_size_mb'] );
+
+		$clean['image_png']          = isset( $input['image_png'] ) && in_array( $input['image_png'], self::PNG_MODES, true ) ? $input['image_png'] : $defaults['image_png'];
+		$clean['image_webp_quality'] = (int) self::clamp( $input, 'image_webp_quality', 1, 100, $current['image_webp_quality'] );
+		$clean['image_png_quality']  = (int) self::clamp( $input, 'image_png_quality', 10, 100, $current['image_png_quality'] );
+		$clean['image_min_savings']  = self::clamp( $input, 'image_min_savings', 0, 100, $current['image_min_savings'] );
 
 		return $clean;
 	}

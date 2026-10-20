@@ -28,6 +28,9 @@ class Settings:
     allowed_hosts: tuple[str, ...]
     callback_retries: int
     log_level: str
+    image_workers: int = 4
+    max_image_bytes: int = 50 * 1024 * 1024
+    max_image_pixels: int = 50_000_000
     public_url: str = ""
     session_secret: str = ""
     github_client_id: str = ""
@@ -73,13 +76,16 @@ def load_settings() -> Settings:
         workers=max(1, _int("WORKERS", 1)),
         ffmpeg_threads=max(0, _int("FFMPEG_THREADS", 0)),
         max_input_bytes=_int("MAX_INPUT_MB", 4096) * 1024 * 1024,
-        max_request_bytes=max(1, _int("MAX_REQUEST_KB", 64)) * 1024,
+        max_request_bytes=max(1, _int("MAX_REQUEST_KB", 256)) * 1024,
         job_timeout=_int("JOB_TIMEOUT_SECONDS", 4 * 3600),
         job_ttl_seconds=_int("JOB_TTL_HOURS", 24) * 3600,
         download_timeout=_int("DOWNLOAD_TIMEOUT_SECONDS", 1800),
         allowed_hosts=tuple(h.lower() for h in _list("ALLOWED_HOSTS")),
         callback_retries=max(1, _int("CALLBACK_RETRIES", 5)),
         log_level=os.getenv("LOG_LEVEL", "info").upper(),
+        image_workers=max(1, _int("IMAGE_WORKERS", 4)),
+        max_image_bytes=max(1, _int("MAX_IMAGE_MB", 50)) * 1024 * 1024,
+        max_image_pixels=max(1, _int("MAX_IMAGE_MEGAPIXELS", 50)) * 1_000_000,
         public_url=public_url,
         session_secret=session_secret,
         github_client_id=github_client_id,

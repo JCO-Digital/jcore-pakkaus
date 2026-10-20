@@ -10,14 +10,21 @@ export const getSettings = () => apiFetch( { path: `${ BASE }/settings` } );
 export const saveSettings = ( data ) =>
 	apiFetch( { path: `${ BASE }/settings`, method: 'POST', data } );
 
-export const getVideos = ( query ) =>
-	apiFetch( { path: addQueryArgs( `${ BASE }/videos`, query ) } );
+// `type` is the list's route base: `videos` or `images`.
+export const getItems = ( type, query ) =>
+	apiFetch( { path: addQueryArgs( `${ BASE }/${ type }`, query ) } );
 
-export const optimizeVideo = ( id ) =>
-	apiFetch( { path: `${ BASE }/videos/${ id }/optimize`, method: 'POST' } );
+export const optimizeItem = ( type, id ) =>
+	apiFetch( {
+		path: `${ BASE }/${ type }/${ id }/optimize`,
+		method: 'POST',
+	} );
 
-export const restoreVideo = ( id ) =>
-	apiFetch( { path: `${ BASE }/videos/${ id }/restore`, method: 'POST' } );
+export const restoreItem = ( type, id ) =>
+	apiFetch( { path: `${ BASE }/${ type }/${ id }/restore`, method: 'POST' } );
 
-export const optimizeAll = () =>
-	apiFetch( { path: `${ BASE }/videos/optimize-all`, method: 'POST' } );
+export const optimizeAll = ( type ) =>
+	apiFetch( { path: `${ BASE }/${ type }/optimize-all`, method: 'POST' } );
+
+export const checkServing = () =>
+	apiFetch( { path: `${ BASE }/images/serving` } );

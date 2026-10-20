@@ -1,6 +1,6 @@
 === JCORE Pakkaus ===
 Contributors: jcodigital
-Tags: video, compression, ffmpeg, optimization, media
+Tags: video, image, webp, compression, optimization
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
@@ -8,26 +8,32 @@ Stable tag: 2.4.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Optimizes uploaded videos with a self-hosted FFmpeg optimizer service, and shows the whole library's optimization state on one screen.
+Optimizes uploaded videos and images with a self-hosted optimizer service, and shows the whole library's optimization state on one screen.
 
 == Description ==
 
 When a video is uploaded, the plugin asks your optimizer service to transcode it into a web-optimized MP4 (H.264 or H.265), then swaps the result in for the original file in the media library.
 
+When a JPEG or PNG image is uploaded, the service makes a WebP version of it and of every resized copy, saved next to each file as `photo.jpg.webp`. The originals stay where they are: your web server sends the WebP version to browsers that support it and the original to everything else. PNG files are also recompressed, as WordPress saves resized PNG files barely compressed.
+
 = Features =
 
-* **Automatic optimization** of new uploads, plus per-video, bulk and "optimize all" actions.
-* **Video dashboard** under Settings → JCORE Pakkaus: space saved, progress of running jobs, and every video with its status, sizes and actions.
+* **Automatic optimization** of new uploads, plus per-file, bulk and "optimize all" actions.
+* **Video and image dashboards** under Settings → JCORE Pakkaus: space saved, progress of running jobs, and every file with its status, sizes and actions.
+* **Side-by-side comparison** of the original and the optimized video or image.
+* **WebP versions** of JPEG and PNG images, served by the browser's `Accept` header, so URLs never change and browsers without WebP support get the original.
+* **PNG recompression**, lossy (up to 256 colours) or lossless.
+* Pauses image optimization while another image optimization plugin is active, so the two never fight over the same files.
 * **Downscaling** (measured on the short side, so portrait videos work), frame-rate cap and **HDR to SDR** tonemapping.
 * Keeps the original when the result is not meaningfully smaller.
-* Optional **backups** with one-click restore.
+* Optional **backups** of videos and PNG files with one-click restore.
 * Status badges in the media library list, the attachment edit screen and the media modal.
-* **WP-CLI**: `wp pakkaus optimize --all`, `wp pakkaus status`, `wp pakkaus poll --wait`, `wp pakkaus restore`, `wp pakkaus test`.
+* **WP-CLI**: `wp pakkaus optimize --all`, `wp pakkaus status`, `wp pakkaus poll --wait`, `wp pakkaus restore`, `wp pakkaus serving`, `wp pakkaus test`.
 * **Automatic updates** through the J&Co Digital update service.
 
 = External services =
 
-Videos are transcoded by an optimizer service you run yourself (a Docker container; see the project README). The plugin sends it the URL of each video, the encoding settings and a callback URL on this site; the service downloads the video, and the plugin downloads the result. Nothing is sent anywhere else.
+Videos and images are optimized by a service you run yourself (a Docker container; see the project README). The plugin sends it the URLs of each video or image file, the optimization settings and a callback URL on this site; the service downloads the files, and the plugin downloads the results. Nothing is sent anywhere else.
 
 The plugin checks for updates against `https://update.jcore.fi`, operated by J&Co Digital Oy. It sends the plugin slug and the installed version, and the site URL as the request's origin.
 
@@ -45,6 +51,30 @@ The URL and token can also be set in `wp-config.php` with `JCORE_PAKKAUS_SERVICE
 
 == Frequently Asked Questions ==
 
+= How do browsers get the WebP versions? =
+
+The web server picks them. Add this to the Nginx configuration: the `map` in the `http` block, the `location` in the site's `server` block, above any other location that matches images.
+
+`map $http_accept $webp_suffix {
+    default        "";
+    "~*image/webp" ".webp";
+}
+
+location ~* ^/wp-content/uploads/.+\.(?:jpe?g|png)$ {
+    add_header Vary Accept;
+    try_files $uri$webp_suffix $uri =404;
+}`
+
+Then use **Settings → JCORE Pakkaus → Settings → WebP delivery → Check delivery**, or `wp pakkaus serving`. The project's `docs/webp-nginx.md` covers caching headers, CDNs and other upload paths.
+
+= Can I use it alongside another image optimization plugin? =
+
+No. While EWWW Image Optimizer, ShortPixel, Smush, Imagify, Optimole, WebP Express, Converter for Media, TinyPNG, Modern Image Formats or a similar plugin is active, JCORE Pakkaus leaves images alone and shows a warning; deactivate the other plugin to resume. Two optimizers on the same files recompress each other's results, and several write their WebP files under the same names. Videos are optimized either way.
+
+= Are my images changed? =
+
+JPEG files are not. PNG files are recompressed in place unless PNG compression is turned off; turn on *Keep a backup of the original* to be able to restore them. The WebP versions are new files next to the originals, and *Restore original* deletes them.
+
 = I used the stand-alone Video Optimizer plugin. Do I need to do anything? =
 
 No. Activating JCORE Pakkaus deactivates the old plugin and moves its settings, job state, statistics and backups over. The old `VIDEO_OPTIMIZER_SERVICE_URL` and `VIDEO_OPTIMIZER_API_TOKEN` constants keep working. The old plugin can then be deleted.
@@ -55,7 +85,7 @@ H.264 plays everywhere. H.265 makes noticeably smaller files, but not every brow
 
 = What happens to my data when I delete the plugin? =
 
-The settings and the job state are removed. Optimized files, backups of originals and the size statistics stay.
+The settings and the job state are removed. Optimized files, WebP versions, backups of originals and the size statistics stay.
 
 == Changelog ==
 

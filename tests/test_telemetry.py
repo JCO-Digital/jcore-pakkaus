@@ -48,15 +48,19 @@ class TelemetryTests(unittest.TestCase):
         queue = asyncio.Queue()
         queue.put_nowait("a")
         queue.put_nowait("b")
-        telemetry.start(SimpleNamespace(queue=queue, active={"c"}))
+        image_queue = asyncio.Queue()
+        image_queue.put_nowait("d")
+        telemetry.start(SimpleNamespace(queue=queue, active={"c", "e"}, image_queue=image_queue, image_active={"e"}))
         points = collect()
-        self.assertEqual(points["pakkaus.queue.waiting"][-1].value, 2)
-        self.assertEqual(points["pakkaus.jobs.active"][-1].value, 1)
+        waiting = {p.attributes["kind"]: p.value for p in points["pakkaus.queue.waiting"]}
+        active = {p.attributes["kind"]: p.value for p in points["pakkaus.jobs.active"]}
+        self.assertEqual(waiting, {"video": 2, "image": 1})
+        self.assertEqual(active, {"video": 1, "image": 1})
 
         # Every series exists before its first job, so Prometheus sees the first increment.
         jobs = {(p.attributes["status"], p.attributes["codec"]) for p in points["pakkaus.jobs"]}
         self.assertLessEqual({(s, c) for s in ("completed", "skipped", "failed", "cancelled")
-                              for c in ("h264", "h265")}, jobs)
+                              for c in ("h264", "h265", "image")}, jobs)
         results = {p.attributes["result"] for p in points["pakkaus.callbacks"]}
         self.assertLessEqual({"delivered", "rejected", "gave_up"}, results)
         self.assertIn({"status": "completed", "codec": "h264"},

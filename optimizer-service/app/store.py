@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
-JSON_FIELDS = ("options", "metadata", "input", "output")
+JSON_FIELDS = ("options", "metadata", "input", "output", "files")
 TERMINAL_STATUSES = ("completed", "skipped", "failed")
 ACTIVE_STATUSES = ("queued", "downloading", "processing")
 # Owner of jobs created with the API_TOKEN environment variable (and of jobs from before API keys).
@@ -74,9 +74,16 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
-        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(jobs)")}
-        if "api_key_id" not in columns:
-            self._conn.execute(f"ALTER TABLE jobs ADD COLUMN api_key_id TEXT NOT NULL DEFAULT '{ENV_KEY_ID}'")
+        self._add_column("jobs", "api_key_id", f"TEXT NOT NULL DEFAULT '{ENV_KEY_ID}'")
+        # Image jobs list their files; source_url holds the first one.
+        self._add_column("jobs", "kind", "TEXT NOT NULL DEFAULT 'video'")
+        self._add_column("jobs", "files", "TEXT")
+        self._add_column("usage", "kind", "TEXT NOT NULL DEFAULT 'video'")
+
+    def _add_column(self, table: str, column: str, definition: str) -> None:
+        columns = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _query(self, sql: str, params: Any = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -105,8 +112,8 @@ class Store:
         placeholders = ", ".join(f":{key}" for key in record)
         self._query(f"INSERT INTO jobs ({columns}) VALUES ({placeholders})", record)
         self._query(
-            "INSERT OR REPLACE INTO usage (job_id, key_id, status, created_at) VALUES (?, ?, ?, ?)",
-            (job["id"], job.get("api_key_id", ENV_KEY_ID), job["status"], now),
+            "INSERT OR REPLACE INTO usage (job_id, key_id, status, created_at, kind) VALUES (?, ?, ?, ?, ?)",
+            (job["id"], job.get("api_key_id", ENV_KEY_ID), job["status"], now, job.get("kind", "video")),
         )
         return self.get_job(job["id"])  # type: ignore[return-value]
 
@@ -222,6 +229,7 @@ class Store:
                       SUM(status = 'skipped') AS skipped,
                       SUM(status = 'failed') AS failed,
                       SUM(status IN ('queued', 'downloading', 'processing')) AS active,
+                      SUM(kind = 'image') AS image_jobs,
                       SUM(CASE WHEN status IN ('completed', 'skipped') THEN input_bytes END) AS input_bytes,
                       SUM(CASE WHEN status = 'completed' THEN input_bytes - output_bytes END) AS saved_bytes,
                       SUM(CASE WHEN status IN ('completed', 'skipped') THEN duration_seconds END) AS video_seconds,
@@ -255,15 +263,18 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
     """The job representation returned to API clients (never includes the callback secret)."""
     return {
         "id": job["id"],
+        "kind": job.get("kind") or "video",
         "status": job["status"],
         "progress": job["progress"],
         "message": job["message"],
         "source_url": job["source_url"],
+        "files": job.get("files"),
         "options": job["options"],
         "metadata": job["metadata"] or {},
         "input": job["input"],
         "output": job["output"],
-        "output_url": f"/jobs/{job['id']}/output" if job["status"] == "completed" else None,
+        "output_url": f"/jobs/{job['id']}/output"
+        if job["status"] == "completed" and job.get("kind", "video") == "video" else None,
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
     }

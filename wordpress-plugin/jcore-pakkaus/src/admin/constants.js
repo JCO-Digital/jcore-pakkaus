@@ -79,3 +79,28 @@ export const RESOLUTIONS = [
 export const FRAME_RATES = [ 0, 60, 50, 30, 25, 24 ];
 
 export const AUDIO_BITRATES = [ 64, 96, 128, 160, 192, 256, 320 ];
+
+export const PNG_MODES = [
+	{ value: 'off', label: __( 'Off', 'jcore-pakkaus' ) },
+	{
+		value: 'lossless',
+		label: __( 'Lossless (same pixels)', 'jcore-pakkaus' ),
+	},
+	{
+		value: 'lossy',
+		label: __( 'Lossy, up to 256 colours (smallest)', 'jcore-pakkaus' ),
+	},
+];
+
+// Kept in step with docs/webp-nginx.md in the repository.
+export const NGINX_WEBP = `# http block, e.g. /etc/nginx/conf.d/webp.conf
+map $http_accept $webp_suffix {
+    default        "";
+    "~*image/webp" ".webp";
+}
+
+# server block, above any other location matching .jpg or .png
+location ~* ^/wp-content/uploads/.+\\.(?:jpe?g|png)$ {
+    add_header Vary Accept;
+    try_files $uri$webp_suffix $uri =404;
+}`;

@@ -7,6 +7,8 @@
 
 namespace Jcore\Pakkaus\Admin;
 
+use Jcore\Pakkaus\Conflicts;
+use Jcore\Pakkaus\Images;
 use Jcore\Pakkaus\Processor;
 use Jcore\Pakkaus\Settings;
 
@@ -15,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Shows each video's optimization state where the media library lists it.
+ * Shows each video's and image's optimization state where the media library lists it.
  */
 final class Media {
 
@@ -42,6 +44,7 @@ final class Media {
 	public static function register(): void {
 		add_action( 'admin_post_jcore_pakkaus_optimize', array( self::class, 'handle_optimize' ) );
 		add_action( 'admin_post_jcore_pakkaus_restore', array( self::class, 'handle_restore' ) );
+		add_action( 'admin_post_jcore_pakkaus_original', array( self::class, 'handle_original' ) );
 		add_action( 'admin_notices', array( self::class, 'notices' ) );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'enqueue_on_screen' ) );
 		add_action( 'wp_enqueue_media', array( self::class, 'enqueue_style' ) );
@@ -105,7 +108,7 @@ final class Media {
 				)
 				: array(
 					'type'    => 'success',
-					'message' => __( 'The video was sent to the optimizer.', 'jcore-pakkaus' ),
+					'message' => __( 'Sent to the optimizer.', 'jcore-pakkaus' ),
 				)
 		);
 	}
@@ -128,8 +131,48 @@ final class Media {
 				)
 				: array(
 					'type'    => 'success',
-					'message' => __( 'The original video was restored.', 'jcore-pakkaus' ),
+					'message' => __( 'The original was restored.', 'jcore-pakkaus' ),
 				)
+		);
+	}
+
+	/**
+	 * Sends an image's original full-size file, read from disk. Requesting the file's own URL would get the
+	 * WebP version from a server set up to hand those out, which defeats comparing the two.
+	 *
+	 * @return void
+	 */
+	public static function handle_original(): void {
+		$id   = self::verify_attachment_action( 'jcore_pakkaus_original' );
+		$path = Images::is_image( $id ) ? Images::original_path( $id ) : '';
+		if ( '' === $path ) {
+			wp_die( esc_html__( 'The original file no longer exists.', 'jcore-pakkaus' ), 404 );
+		}
+
+		$type = wp_check_filetype( $path );
+		nocache_headers();
+		header( 'Content-Type: ' . ( $type['type'] ? $type['type'] : 'application/octet-stream' ) );
+		header( 'Content-Length: ' . filesize( $path ) );
+		header( 'X-Content-Type-Options: nosniff' );
+		readfile( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile -- streams the file as is.
+		exit;
+	}
+
+	/**
+	 * URL that sends an image's original full-size file, unescaped for use from JavaScript.
+	 *
+	 * @param int $id Attachment ID.
+	 *
+	 * @return string
+	 */
+	public static function original_url( int $id ): string {
+		return add_query_arg(
+			array(
+				'action'        => 'jcore_pakkaus_original',
+				'attachment_id' => $id,
+				'_wpnonce'      => wp_create_nonce( 'jcore_pakkaus_original_' . $id ),
+			),
+			admin_url( 'admin-post.php' )
 		);
 	}
 
@@ -152,10 +195,15 @@ final class Media {
 		}
 
 		$screen = get_current_screen();
+		$paused = Conflicts::message();
+		if ( $screen && '' !== $paused && in_array( $screen->id, array( 'upload', 'plugins', 'plugins-network' ), true ) && current_user_can( 'activate_plugins' ) ) {
+			printf( '<div class="notice notice-warning"><p>%s</p></div>', esc_html( $paused ) );
+		}
+
 		if ( $screen && 'upload' === $screen->id && ! Settings::is_configured() && current_user_can( 'manage_options' ) ) {
 			printf(
 				'<div class="notice notice-warning"><p>%s <a href="%s">%s</a></p></div>',
-				esc_html__( 'Videos are not being optimized: no optimizer service is connected yet.', 'jcore-pakkaus' ),
+				esc_html__( 'Videos and images are not being optimized: no optimizer service is connected yet.', 'jcore-pakkaus' ),
 				esc_url( Menu::url( 'settings' ) ),
 				esc_html__( 'Connect it', 'jcore-pakkaus' )
 			);
@@ -184,13 +232,13 @@ final class Media {
 	 * @return void
 	 */
 	public static function render_column( $column, $id ): void {
-		if ( self::COLUMN === $column && Processor::is_video( $id ) ) {
+		if ( self::COLUMN === $column && Processor::is_supported( $id ) ) {
 			echo self::status_html( (int) $id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in status_html().
 		}
 	}
 
 	/**
-	 * Adds the optimize and restore links to a video's row actions.
+	 * Adds the optimize and restore links to a video's or image's row actions.
 	 *
 	 * @param array<string, string> $actions Row actions.
 	 * @param \WP_Post              $post    Attachment.
@@ -198,7 +246,7 @@ final class Media {
 	 * @return array<string, string>
 	 */
 	public static function row_actions( $actions, $post ): array {
-		if ( ! Processor::is_video( $post->ID ) || ! current_user_can( 'edit_post', $post->ID ) ) {
+		if ( ! Processor::is_supported( $post->ID ) || ! current_user_can( 'edit_post', $post->ID ) ) {
 			return $actions;
 		}
 
@@ -213,7 +261,7 @@ final class Media {
 	 * @return array<string, string>
 	 */
 	public static function bulk_actions( $actions ): array {
-		$actions['jcore_pakkaus_optimize'] = __( 'Optimize videos', 'jcore-pakkaus' );
+		$actions['jcore_pakkaus_optimize'] = __( 'Optimize videos and images', 'jcore-pakkaus' );
 
 		return $actions;
 	}
@@ -243,8 +291,13 @@ final class Media {
 
 		$queued = 0;
 		$errors = array();
+		$paused = false;
 		foreach ( $ids as $id ) {
-			if ( ! Processor::is_video( $id ) || ! current_user_can( 'edit_post', $id ) ) {
+			if ( ! Processor::is_supported( $id ) || ! current_user_can( 'edit_post', $id ) ) {
+				continue;
+			}
+			if ( Processor::is_paused( $id ) ) {
+				$paused = true;
 				continue;
 			}
 			$result = Processor::queue( $id );
@@ -255,8 +308,11 @@ final class Media {
 			}
 		}
 
-		/* translators: %d: number of videos */
-		$message = sprintf( _n( '%d video sent to the optimizer.', '%d videos sent to the optimizer.', $queued, 'jcore-pakkaus' ), $queued );
+		/* translators: %d: number of videos and images */
+		$message = sprintf( _n( '%d file sent to the optimizer.', '%d files sent to the optimizer.', $queued, 'jcore-pakkaus' ), $queued );
+		if ( $paused ) {
+			$errors[] = Conflicts::message();
+		}
 		if ( $errors ) {
 			$message .= ' ' . implode( ' ', $errors );
 		}
@@ -281,7 +337,7 @@ final class Media {
 	 * @return array<string, mixed>
 	 */
 	public static function attachment_fields( $fields, $post ): array {
-		if ( ! Processor::is_video( $post->ID ) ) {
+		if ( ! Processor::is_supported( $post->ID ) ) {
 			return $fields;
 		}
 		$links = current_user_can( 'edit_post', $post->ID ) ? self::action_links( $post->ID ) : array();
@@ -296,7 +352,7 @@ final class Media {
 	}
 
 	/**
-	 * The status badge, size change and last message of a video, escaped.
+	 * The status badge, size change and last message of a video or image, escaped.
 	 *
 	 * @param int $id Attachment ID.
 	 *
@@ -326,6 +382,9 @@ final class Media {
 				break;
 			case 'optimized':
 				$label = __( 'Optimized', 'jcore-pakkaus' );
+				if ( is_array( $stats ) && ! empty( $stats['files'] ) && in_array( 'webp', self::formats( $stats['files'] ), true ) ) {
+					$label = __( 'Optimized, with WebP', 'jcore-pakkaus' );
+				}
 				if ( is_array( $stats ) && ! empty( $stats['original_size'] ) ) {
 					$detail = sprintf(
 						'<span class="jcore-pakkaus-sizes">%1$s <span aria-hidden="true">&rarr;</span><span class="screen-reader-text">%2$s</span> %3$s <strong>&minus;%4$s%%</strong></span>',
@@ -356,6 +415,9 @@ final class Media {
 			esc_html( $label )
 		) . $detail;
 
+		if ( Processor::is_paused( $id ) ) {
+			$message = __( 'Paused: another image optimization plugin is active.', 'jcore-pakkaus' );
+		}
 		if ( '' !== $message ) {
 			$html .= '<span class="jcore-pakkaus-message">' . esc_html( $message ) . '</span>';
 		}
@@ -373,24 +435,47 @@ final class Media {
 	private static function action_links( int $id ): array {
 		$links  = array();
 		$status = Processor::status( $id );
-		if ( in_array( $status, Processor::RUNNING, true ) ) {
+		if ( in_array( $status, Processor::RUNNING, true ) || Processor::is_paused( $id ) ) {
 			return $links;
 		}
 
-		$label = in_array( $status, array( 'optimized', 'skipped' ), true ) ? __( 'Re-optimize', 'jcore-pakkaus' ) : __( 'Optimize video', 'jcore-pakkaus' );
+		$label = in_array( $status, array( 'optimized', 'skipped' ), true ) ? __( 'Re-optimize', 'jcore-pakkaus' ) : __( 'Optimize', 'jcore-pakkaus' );
 
 		$links['jcore_pakkaus_optimize'] = sprintf( '<a href="%s">%s</a>', esc_url( self::action_url( 'jcore_pakkaus_optimize', $id ) ), esc_html( $label ) );
 
-		if ( Processor::backup_path( $id ) ) {
+		$is_image = Images::is_image( $id );
+		if ( $is_image ? Images::can_restore( $id ) : Processor::backup_path( $id ) ) {
 			$links['jcore_pakkaus_restore'] = sprintf(
 				'<a href="%s" onclick="return confirm(%s)">%s</a>',
 				esc_url( self::action_url( 'jcore_pakkaus_restore', $id ) ),
-				esc_attr( wp_json_encode( __( 'Replace the optimized video with the original file?', 'jcore-pakkaus' ) ) ),
+				esc_attr(
+					wp_json_encode(
+						$is_image
+							? __( 'Delete the WebP versions and put back any kept original PNG files?', 'jcore-pakkaus' )
+							: __( 'Replace the optimized video with the original file?', 'jcore-pakkaus' )
+					)
+				),
 				esc_html__( 'Restore original', 'jcore-pakkaus' )
 			);
 		}
 
 		return $links;
+	}
+
+	/**
+	 * Formats saved next to an image's files.
+	 *
+	 * @param array $records Per-file records from the stats meta.
+	 *
+	 * @return string[]
+	 */
+	private static function formats( array $records ): array {
+		$formats = array();
+		foreach ( $records as $record ) {
+			$formats = array_merge( $formats, array_keys( (array) ( $record['formats'] ?? array() ) ) );
+		}
+
+		return array_unique( $formats );
 	}
 
 	/**

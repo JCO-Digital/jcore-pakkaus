@@ -14,7 +14,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__, admin, telemetry
 from .config import host_allowed, load_settings
 from .ffmpeg import detect_capabilities
-from .models import JobCreate
+from .images import MIME_TYPES, detect_image_capabilities
+from .models import ImageJobCreate, JobCreate
 from .security import RequestGuard
 from .store import ENV_KEY_ID, Store, public_job
 from .worker import JobRunner
@@ -29,12 +30,15 @@ async def lifespan(app: FastAPI):
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     store = Store(settings.data_dir / "jobs.sqlite3")
     caps = await detect_capabilities()
-    log.info("Using %s (h264=%s, h265=%s, hdr tonemapping=%s)",
-             caps.version, caps.codecs["h264"], caps.codecs["h265"], caps.can_tonemap)
-    runner = JobRunner(settings, store, caps)
+    image_caps = detect_image_capabilities()
+    log.info("Using %s (h264=%s, h265=%s, hdr tonemapping=%s; webp=%s, pngquant=%s)",
+             caps.version, caps.codecs["h264"], caps.codecs["h265"], caps.can_tonemap,
+             image_caps.webp, bool(image_caps.pngquant))
+    runner = JobRunner(settings, store, caps, image_caps)
     await runner.start()
     telemetry.start(runner)
     app.state.store, app.state.runner, app.state.caps = store, runner, caps
+    app.state.image_caps = image_caps
     yield
     await runner.stop()
 
@@ -88,7 +92,7 @@ def health(request: Request) -> dict:
 @app.get("/info", dependencies=[Depends(require_token)])
 def info(request: Request) -> dict:
     """Authenticated capability check; the WordPress plugin uses this to test the connection."""
-    caps, runner = request.app.state.caps, request.app.state.runner
+    caps, image_caps, runner = request.app.state.caps, request.app.state.image_caps, request.app.state.runner
     return {
         "status": "ok",
         "version": __version__,
@@ -96,7 +100,13 @@ def info(request: Request) -> dict:
         "codecs": caps.codecs,
         "hdr_tonemapping": caps.can_tonemap,
         "workers": settings.workers,
-        "queue": {"waiting": runner.queue.qsize(), "active": len(runner.active)},
+        "queue": {"waiting": runner.queue.qsize(), "active": len(runner.active) - len(runner.image_active)},
+        "images": {
+            "formats": image_caps.formats,
+            "png_lossy": bool(image_caps.pngquant),
+            "workers": settings.image_workers,
+            "queue": {"waiting": runner.image_queue.qsize(), "active": len(runner.image_active)},
+        },
         "jobs": request.app.state.store.job_counts(),
     }
 
@@ -125,6 +135,35 @@ def create_job(request: Request, body: JobCreate, key_id: str = Depends(require_
     return public_job(job)
 
 
+@app.post("/jobs/images", status_code=status.HTTP_201_CREATED)
+def create_image_job(request: Request, body: ImageJobCreate, key_id: str = Depends(require_token)) -> dict:
+    """Optimize an image and its resized copies: WebP versions next to each file, and smaller PNG files."""
+    image_caps = request.app.state.image_caps
+    for fmt in body.options.formats:
+        if not image_caps.formats.get(fmt):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Creating {fmt} images is not available")
+    urls = [body.callback_url, *(item.url for item in body.files)]
+    for url in filter(None, urls):
+        if not host_allowed(url.host, settings.allowed_hosts):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Host {url.host!r} is not allowed")
+
+    job = request.app.state.store.create_job({
+        "id": uuid.uuid4().hex,
+        "kind": "image",
+        "status": "queued",
+        "progress": 0,
+        "source_url": str(body.files[0].url),
+        "files": [{"name": item.name, "url": str(item.url)} for item in body.files],
+        "callback_url": str(body.callback_url) if body.callback_url else None,
+        "callback_secret": body.callback_secret,
+        "options": body.options.model_dump(),
+        "metadata": body.metadata,
+        "api_key_id": key_id,
+    })
+    request.app.state.runner.enqueue(job["id"], "image")
+    return public_job(job)
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job: dict = Depends(get_job_or_404)) -> dict:
     return public_job(job)
@@ -133,9 +172,31 @@ def get_job(job: dict = Depends(get_job_or_404)) -> dict:
 @app.get("/jobs/{job_id}/output")
 def get_output(request: Request, job_id: str, job: dict = Depends(get_job_or_404)) -> FileResponse:
     path = request.app.state.runner.output_path(job_id)
+    if job.get("kind", "video") != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image jobs have one output per file under /files")
     if job["status"] != "completed" or not path.is_file():
         raise HTTPException(status.HTTP_409_CONFLICT, f"Job is {job['status']}; no output available")
     return FileResponse(path, media_type="video/mp4", filename=f"{job_id}.mp4")
+
+
+@app.get("/jobs/{job_id}/files/{index}/{variant}")
+def get_image_output(
+    request: Request, job_id: str, index: int, variant: str, job: dict = Depends(get_job_or_404)
+) -> FileResponse:
+    """One result of an image job: `optimized` (the file in its own format, smaller) or a format, e.g. `webp`."""
+    if job.get("kind") != "image":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not an image job")
+    if job["status"] != "completed":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Job is {job['status']}; no output available")
+    files = (job["output"] or {}).get("files") or []
+    entry = files[index] if 0 <= index < len(files) else {}
+    if variant not in (entry.get("variants") or {}):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such output")
+    path = request.app.state.runner.image_output_path(job_id, index, variant)
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such output")
+    media_type = MIME_TYPES.get(entry["format"].upper()) if variant == "optimized" else MIME_TYPES.get(variant)
+    return FileResponse(path, media_type=media_type or "application/octet-stream")
 
 
 @app.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(get_job_or_404)])

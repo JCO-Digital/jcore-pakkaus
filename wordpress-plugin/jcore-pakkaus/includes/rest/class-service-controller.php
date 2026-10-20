@@ -78,6 +78,16 @@ final class Service_Controller extends Controller {
 					'waiting' => (int) ( $info['queue']['waiting'] ?? 0 ),
 					'active'  => (int) ( $info['queue']['active'] ?? 0 ),
 				),
+				// Services older than image support leave this out.
+				'images'          => isset( $info['images'] ) && is_array( $info['images'] ) ? array(
+					'formats'   => array_keys( array_filter( (array) ( $info['images']['formats'] ?? array() ) ) ),
+					'png_lossy' => ! empty( $info['images']['png_lossy'] ),
+					'workers'   => (int) ( $info['images']['workers'] ?? 0 ),
+					'queue'     => array(
+						'waiting' => (int) ( $info['images']['queue']['waiting'] ?? 0 ),
+						'active'  => (int) ( $info['images']['queue']['active'] ?? 0 ),
+					),
+				) : null,
 			);
 		}
 
