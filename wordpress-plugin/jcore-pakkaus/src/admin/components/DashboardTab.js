@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Button, Notice, SearchControl, Spinner } from '@wordpress/components';
 import { useDispatch } from '@wordpress/data';
 import { store as noticesStore } from '@wordpress/notices';
-import { __, _n, sprintf } from '@wordpress/i18n';
-import { connection, Icon, upload, video as videoIcon } from '@wordpress/icons';
-import { getVideos, optimizeAll, optimizeVideo, restoreVideo } from '../api';
+import { __, sprintf } from '@wordpress/i18n';
+import { connection, Icon, upload } from '@wordpress/icons';
+import { getItems, optimizeAll, optimizeItem, restoreItem } from '../api';
 import { CONFIG, FILTERS } from '../constants';
 import { cx, errorMessage, formatNumber } from '../utils';
 import CompareModal from './CompareModal';
+import ImageCompareModal from './ImageCompareModal';
 import StatCards from './StatCards';
-import VideoTable, { Pagination } from './VideoTable';
+import MediaTable, { Pagination } from './MediaTable';
 
 const PER_PAGE = 20;
 const REFRESH_INTERVAL = 5000;
@@ -26,7 +27,7 @@ function ConnectPrompt( { onOpenSettings } ) {
 				</h2>
 				<p>
 					{ __(
-						'Videos are transcoded by a self-hosted FFmpeg service. Add its URL and API token to start optimizing uploads.',
+						'Videos and images are optimized by a self-hosted service. Add its URL and API token to start optimizing uploads.',
 						'jcore-pakkaus'
 					) }
 				</p>
@@ -38,28 +39,12 @@ function ConnectPrompt( { onOpenSettings } ) {
 	);
 }
 
-function BulkPrompt( { count, isBusy, onOptimize } ) {
+function BulkPrompt( { media, count, isBusy, onOptimize } ) {
 	return (
 		<div className="jcore-pakkaus__callout is-subtle">
 			<div className="jcore-pakkaus__callout-text">
-				<h2>
-					{ sprintf(
-						/* translators: %s: number of videos */
-						_n(
-							'%s video has never been optimized',
-							'%s videos have never been optimized',
-							count,
-							'jcore-pakkaus'
-						),
-						formatNumber( count )
-					) }
-				</h2>
-				<p>
-					{ __(
-						'Probably uploaded before the plugin was set up. They are sent to the service in small batches, so it is never flooded.',
-						'jcore-pakkaus'
-					) }
-				</p>
+				<h2>{ media.neverOptimized( count ) }</h2>
+				<p>{ media.bulkText }</p>
 			</div>
 			<Button
 				variant="primary"
@@ -74,34 +59,29 @@ function BulkPrompt( { count, isBusy, onOptimize } ) {
 	);
 }
 
-function EmptyLibrary() {
+function EmptyLibrary( { media } ) {
 	return (
 		<div className="jcore-pakkaus__empty">
-			<Icon icon={ videoIcon } size={ 48 } />
-			<h2>{ __( 'No videos yet', 'jcore-pakkaus' ) }</h2>
-			<p>
-				{ __(
-					'Videos you upload to the media library show up here with their optimization status.',
-					'jcore-pakkaus'
-				) }
-			</p>
+			<Icon icon={ media.icon } size={ 48 } />
+			<h2>{ media.emptyTitle }</h2>
+			<p>{ media.emptyText }</p>
 			<Button
 				variant="secondary"
 				icon={ upload }
 				href={ CONFIG.uploadUrl }
 			>
-				{ __( 'Upload a video', 'jcore-pakkaus' ) }
+				{ media.upload }
 			</Button>
 		</div>
 	);
 }
 
-function Filters( { counts, filter, onChange } ) {
+function Filters( { media, counts, filter, onChange } ) {
 	return (
 		<div
 			className="jcore-pakkaus__filters"
 			role="group"
-			aria-label={ __( 'Filter videos by status', 'jcore-pakkaus' ) }
+			aria-label={ media.filters }
 		>
 			{ FILTERS.filter(
 				( { name } ) =>
@@ -128,14 +108,20 @@ function Filters( { counts, filter, onChange } ) {
 }
 
 /**
- * The Videos tab: library summary, then every video with its status.
+ * The Videos or Images tab: library summary, then every attachment with its status.
  *
  * @param {Object}   props
+ * @param {Object}   props.media          Entry of MEDIA: which list, and its wording.
  * @param {boolean}  props.isActive       Whether the tab is showing; it only refreshes then.
  * @param {?Object}  props.service        Response of GET /service.
  * @param {Function} props.onOpenSettings Opens the settings tab.
  */
-export default function DashboardTab( { isActive, service, onOpenSettings } ) {
+export default function DashboardTab( {
+	media,
+	isActive,
+	service,
+	onOpenSettings,
+} ) {
 	const [ filter, setFilter ] = useState( 'all' );
 	const [ page, setPage ] = useState( 1 );
 	const [ search, setSearch ] = useState( '' );
@@ -157,7 +143,7 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 				setIsLoading( true );
 			}
 			try {
-				const result = await getVideos( {
+				const result = await getItems( media.type, {
 					status: filter,
 					page,
 					per_page: PER_PAGE,
@@ -181,7 +167,7 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 				}
 			}
 		},
-		[ filter, page, query ]
+		[ media.type, filter, page, query ]
 	);
 
 	useEffect( () => {
@@ -211,42 +197,37 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 		return () => clearInterval( timer );
 	}, [ isActive, activeCount, load ] );
 
-	const runAction = async ( video, action ) => {
+	const runAction = async ( item, action ) => {
 		if (
 			action === 'restore' &&
 			// eslint-disable-next-line no-alert
-			! window.confirm(
-				__(
-					'Replace the optimized video with the original file?',
-					'jcore-pakkaus'
-				)
-			)
+			! window.confirm( media.restoreConfirm )
 		) {
 			return;
 		}
 
-		setBusy( ( current ) => ( { ...current, [ video.id ]: action } ) );
+		setBusy( ( current ) => ( { ...current, [ item.id ]: action } ) );
 		try {
 			if ( action === 'restore' ) {
-				await restoreVideo( video.id );
+				await restoreItem( media.type, item.id );
 				createSuccessNotice(
 					sprintf(
-						/* translators: %s: video title */
+						/* translators: %s: video or image title */
 						__( 'Restored the original of “%s”.', 'jcore-pakkaus' ),
-						video.title
+						item.title
 					),
 					{ type: 'snackbar' }
 				);
 			} else {
-				await optimizeVideo( video.id );
+				await optimizeItem( media.type, item.id );
 				createSuccessNotice(
 					sprintf(
-						/* translators: %s: video title */
+						/* translators: %s: video or image title */
 						__(
 							'“%s” was sent to the optimizer.',
 							'jcore-pakkaus'
 						),
-						video.title
+						item.title
 					),
 					{ type: 'snackbar' }
 				);
@@ -254,27 +235,17 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 		} catch ( caught ) {
 			createErrorNotice( errorMessage( caught ), { type: 'snackbar' } );
 		}
-		setBusy( ( { [ video.id ]: done, ...rest } ) => rest );
+		setBusy( ( { [ item.id ]: done, ...rest } ) => rest );
 		load( { quiet: true } );
 	};
 
 	const runOptimizeAll = async () => {
 		setIsBulkBusy( true );
 		try {
-			const { queued } = await optimizeAll();
-			createSuccessNotice(
-				sprintf(
-					/* translators: %s: number of videos */
-					_n(
-						'%s video queued for optimization.',
-						'%s videos queued for optimization.',
-						queued,
-						'jcore-pakkaus'
-					),
-					formatNumber( queued )
-				),
-				{ type: 'snackbar' }
-			);
+			const { queued } = await optimizeAll( media.type );
+			createSuccessNotice( media.queued( queued ), {
+				type: 'snackbar',
+			} );
 		} catch ( caught ) {
 			createErrorNotice( errorMessage( caught ), { type: 'snackbar' } );
 		}
@@ -301,6 +272,8 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 	const { summary } = data;
 	// Until the service check answers, assume it is set up.
 	const isConfigured = service?.configured ?? true;
+	// Another image optimizer is active; images are left alone (the app shows why).
+	const isPaused = !! data.paused;
 
 	return (
 		<div className="jcore-pakkaus__dashboard">
@@ -322,13 +295,14 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 			) }
 
 			{ summary.counts.all === 0 ? (
-				<EmptyLibrary />
+				<EmptyLibrary media={ media } />
 			) : (
 				<>
-					<StatCards summary={ summary } />
+					<StatCards media={ media } summary={ summary } />
 
-					{ isConfigured && summary.new > 0 && (
+					{ isConfigured && ! isPaused && summary.new > 0 && (
 						<BulkPrompt
+							media={ media }
 							count={ summary.new }
 							isBusy={ isBulkBusy }
 							onOptimize={ runOptimizeAll }
@@ -338,6 +312,7 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 					<div className="jcore-pakkaus__card jcore-pakkaus__library">
 						<div className="jcore-pakkaus__toolbar">
 							<Filters
+								media={ media }
 								counts={ summary.counts }
 								filter={ filter }
 								onChange={ ( name ) => {
@@ -348,11 +323,8 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 							<SearchControl
 								__nextHasNoMarginBottom
 								className="jcore-pakkaus__search"
-								label={ __( 'Search videos', 'jcore-pakkaus' ) }
-								placeholder={ __(
-									'Search videos',
-									'jcore-pakkaus'
-								) }
+								label={ media.search }
+								placeholder={ media.search }
 								value={ search }
 								onChange={ setSearch }
 							/>
@@ -364,16 +336,19 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 							</Notice>
 						) }
 
-						<VideoTable
+						<MediaTable
+							media={ media }
 							items={ data.items }
 							isLoading={ isLoading }
 							busy={ busy }
-							canOptimize={ isConfigured }
+							canOptimize={ isConfigured && ! isPaused }
+							canRestore={ ! isPaused }
 							onAction={ runAction }
 							onCompare={ setComparing }
 						/>
 
 						<Pagination
+							media={ media }
 							page={ page }
 							totalPages={ data.total_pages }
 							total={ data.total }
@@ -383,7 +358,13 @@ export default function DashboardTab( { isActive, service, onOpenSettings } ) {
 				</>
 			) }
 
-			{ comparing && (
+			{ comparing?.kind === 'image' && (
+				<ImageCompareModal
+					image={ comparing }
+					onClose={ () => setComparing( null ) }
+				/>
+			) }
+			{ comparing && comparing.kind !== 'image' && (
 				<CompareModal
 					video={ comparing }
 					onClose={ () => setComparing( null ) }

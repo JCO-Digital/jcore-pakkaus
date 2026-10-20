@@ -19,6 +19,17 @@ add_filter(
 );
 
 add_filter(
+	'jcore_pakkaus_image_job_payload',
+	static function ( array $payload ): array {
+		$payload['callback_url'] = str_replace( DEV_PUBLIC_URL, DEV_INTERNAL_URL, $payload['callback_url'] );
+		foreach ( $payload['files'] as $index => $file ) {
+			$payload['files'][ $index ]['url'] = str_replace( DEV_PUBLIC_URL, DEV_INTERNAL_URL, $file['url'] );
+		}
+		return $payload;
+	}
+);
+
+add_filter(
 	'cron_request',
 	static function ( array $request ): array {
 		$request['url'] = str_replace( DEV_PUBLIC_URL, 'http://localhost', $request['url'] );

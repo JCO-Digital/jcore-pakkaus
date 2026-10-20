@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import { SnackbarList } from '@wordpress/components';
+import { Button, Notice, SnackbarList } from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
 import { store as noticesStore } from '@wordpress/notices';
 import { __ } from '@wordpress/i18n';
 import { Icon, video } from '@wordpress/icons';
 import { getService } from './api';
+import { CONFIG } from './constants';
+import { MEDIA } from './media';
 import { cx, errorMessage } from './utils';
 import ServiceStatus from './components/ServiceStatus';
 import DashboardTab from './components/DashboardTab';
 import SettingsTab from './components/SettingsTab';
 
 const TABS = [
-	{ name: 'videos', title: __( 'Videos', 'jcore-pakkaus' ) },
+	{ name: 'videos', title: MEDIA.videos.title },
+	{ name: 'images', title: MEDIA.images.title },
 	{ name: 'settings', title: __( 'Settings', 'jcore-pakkaus' ) },
 ];
 
@@ -89,7 +92,7 @@ export default function App() {
 						<h1>{ __( 'JCORE Pakkaus', 'jcore-pakkaus' ) }</h1>
 						<p className="jcore-pakkaus__tagline">
 							{ __(
-								'Smaller, faster-loading videos, straight from the media library.',
+								'Smaller, faster-loading videos and images, straight from the media library.',
 								'jcore-pakkaus'
 							) }
 						</p>
@@ -102,6 +105,19 @@ export default function App() {
 				/>
 			</header>
 			<hr className="wp-header-end" />
+
+			{ CONFIG.paused && (
+				<Notice
+					className="jcore-pakkaus__paused"
+					status="warning"
+					isDismissible={ false }
+				>
+					<p>{ CONFIG.paused }</p>
+					<Button variant="link" href={ CONFIG.pluginsUrl }>
+						{ __( 'Go to Plugins', 'jcore-pakkaus' ) }
+					</Button>
+				</Notice>
+			) }
 
 			<div
 				className="jcore-pakkaus__tabs"
@@ -137,8 +153,9 @@ export default function App() {
 						className="jcore-pakkaus__panel"
 						hidden={ tab !== name }
 					>
-						{ name === 'videos' ? (
+						{ MEDIA[ name ] ? (
 							<DashboardTab
+								media={ MEDIA[ name ] }
 								isActive={ tab === name }
 								service={ service }
 								onOpenSettings={ () => selectTab( 'settings' ) }

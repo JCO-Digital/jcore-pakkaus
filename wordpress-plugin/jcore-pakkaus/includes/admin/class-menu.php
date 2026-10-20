@@ -7,6 +7,8 @@
 
 namespace Jcore\Pakkaus\Admin;
 
+use Jcore\Pakkaus\Conflicts;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -112,8 +114,10 @@ final class Menu {
 				'window.jcorePakkaus = %s;',
 				wp_json_encode(
 					array(
-						'mediaUrl'  => admin_url( 'upload.php?mode=list&post_mime_type=video' ),
-						'uploadUrl' => admin_url( 'media-new.php' ),
+						'mediaUrl'   => admin_url( 'upload.php?mode=list&post_mime_type=video' ),
+						'uploadUrl'  => admin_url( 'media-new.php' ),
+						'pluginsUrl' => admin_url( 'plugins.php' ),
+						'paused'     => Conflicts::message(),
 					)
 				)
 			),

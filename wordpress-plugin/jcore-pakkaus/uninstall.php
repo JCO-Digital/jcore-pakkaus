@@ -2,7 +2,7 @@
 /**
  * Removes the plugin's settings and job state when it is deleted.
  *
- * Optimized files, backups of originals and the size statistics stay, so
+ * Optimized files, WebP versions, backups of originals and the size statistics stay, so
  * reinstalling the plugin can still restore an original.
  *
  * @package Jcore\Pakkaus
@@ -22,7 +22,7 @@ function jcore_pakkaus_uninstall_site(): void {
 	delete_option( 'jcore_pakkaus_settings' );
 	delete_option( 'jcore_pakkaus_db_version' );
 
-	foreach ( array( 'status', 'job_id', 'secret', 'progress', 'message', 'attempts', 'updated' ) as $jcore_pakkaus_key ) {
+	foreach ( array( 'status', 'job_id', 'secret', 'progress', 'message', 'attempts', 'updated', 'files' ) as $jcore_pakkaus_key ) {
 		delete_metadata( 'post', 0, '_jcore_pakkaus_' . $jcore_pakkaus_key, '', true );
 	}
 

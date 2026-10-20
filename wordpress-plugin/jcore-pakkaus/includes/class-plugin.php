@@ -120,6 +120,7 @@ final class Plugin {
 		( new Rest\Settings_Controller() )->register_routes();
 		( new Rest\Service_Controller() )->register_routes();
 		( new Rest\Videos_Controller() )->register_routes();
+		( new Rest\Images_Controller() )->register_routes();
 	}
 
 	/**

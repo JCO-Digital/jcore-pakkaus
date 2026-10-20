@@ -117,6 +117,42 @@ export default function ConnectionDetails( {
 						formatNumber( info.workers )
 					) }
 				</dd>
+				<dt>{ __( 'Images', 'jcore-pakkaus' ) }</dt>
+				<dd>
+					{ info.images ? (
+						<>
+							{ info.images.formats.includes( 'webp' ) && (
+								<span className="jcore-pakkaus__chip">
+									WebP
+								</span>
+							) }
+							<span className="jcore-pakkaus__chip">
+								{ info.images.png_lossy
+									? __( 'Lossy PNG', 'jcore-pakkaus' )
+									: __( 'Lossless PNG', 'jcore-pakkaus' ) }
+							</span>
+						</>
+					) : (
+						__( 'Not supported by this version', 'jcore-pakkaus' )
+					) }
+				</dd>
+				{ info.images && (
+					<>
+						<dt>{ __( 'Image queue', 'jcore-pakkaus' ) }</dt>
+						<dd>
+							{ sprintf(
+								/* translators: 1: running jobs, 2: waiting jobs, 3: parallel workers */
+								__(
+									'%1$s running, %2$s waiting (%3$s at a time)',
+									'jcore-pakkaus'
+								),
+								formatNumber( info.images.queue.active ),
+								formatNumber( info.images.queue.waiting ),
+								formatNumber( info.images.workers )
+							) }
+						</dd>
+					</>
+				) }
 			</dl>
 		);
 	}

@@ -975,6 +975,55 @@ $tones: (
 		}
 	}
 
+	&__paused {
+		margin: 16px 0 0;
+
+		p {
+			margin: 0 0 4px;
+		}
+	}
+
+	&__code {
+		position: relative;
+
+		pre {
+			overflow-x: auto;
+			margin: 0;
+			padding: 12px 44px 12px 14px;
+			border-radius: 4px;
+			background: $surface;
+			font-size: 12px;
+			line-height: 1.6;
+		}
+
+		// wp-admin styles inline code with a background of its own.
+		code {
+			padding: 0;
+			background: none;
+			font-size: inherit;
+		}
+
+		.components-button {
+			position: absolute;
+			top: 6px;
+			right: 6px;
+		}
+	}
+
+	&__help {
+		margin: 8px 0 0;
+		color: $text-muted;
+		font-size: 12px;
+	}
+
+	&__serving-check {
+		margin: 14px 0 0;
+
+		+ .components-notice {
+			margin: 12px 0 0;
+		}
+	}
+
 	&__savebar {
 		position: sticky;
 		bottom: 0;
@@ -1087,7 +1136,8 @@ $tones: (
 			display: none;
 		}
 
-		video {
+		video,
+		img {
 			display: block;
 			width: 100%;
 			height: 100%;
@@ -1164,6 +1214,13 @@ $tones: (
 			outline: 2px solid var(--wp-admin-theme-color, #2271b1);
 			outline-offset: 2px;
 		}
+	}
+
+	// Transparent images show over a checkerboard rather than black. Each pane
+	// has its own, so the original doesn't show through where it is clear.
+	&__stage.is-image,
+	&__stage.is-image > &__pane {
+		background: repeating-conic-gradient(#dcdcde 0% 25%, #fff 0% 50%) 50% / 20px 20px;
 	}
 
 	&__controls {

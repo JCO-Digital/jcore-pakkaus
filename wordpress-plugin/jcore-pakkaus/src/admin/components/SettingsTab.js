@@ -16,11 +16,13 @@ import {
 	AUDIO_BITRATES,
 	CODECS,
 	FRAME_RATES,
+	PNG_MODES,
 	PRESETS,
 	RESOLUTIONS,
 } from '../constants';
 import { cx, describeCrf, errorMessage, numberOptions } from '../utils';
 import ConnectionDetails from './ConnectionDetails';
+import ServingCheck from './ServingCheck';
 
 // Keys the form edits. The API token is handled apart: it is never sent back.
 const EDITABLE = [
@@ -38,6 +40,13 @@ const EDITABLE = [
 	'strip_metadata',
 	'keep_original',
 	'min_savings_percent',
+	'image_auto_optimize',
+	'image_webp',
+	'image_webp_quality',
+	'image_png',
+	'image_png_quality',
+	'image_png_lossless',
+	'image_min_savings',
 ];
 
 function Section( { title, description, children } ) {
@@ -237,7 +246,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 			<Section
 				title={ __( 'Optimizer service', 'jcore-pakkaus' ) }
 				description={ __(
-					'The self-hosted FFmpeg service that does the transcoding. WordPress sends it a link to each video and gets the result back.',
+					'The self-hosted service that does the work. WordPress sends it a link to each video or image and gets the result back.',
 					'jcore-pakkaus'
 				) }
 			>
@@ -294,13 +303,25 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 			<Section
 				title={ __( 'Automation', 'jcore-pakkaus' ) }
 				description={ __(
-					'Optimize videos as they are uploaded. Existing videos can be optimized from the Videos tab or the media library.',
+					'Optimize videos and images as they are uploaded. Existing ones can be optimized from the Videos and Images tabs or the media library.',
 					'jcore-pakkaus'
 				) }
 			>
 				<ToggleControl
 					__nextHasNoMarginBottom
-					label={ __( 'Optimize new uploads', 'jcore-pakkaus' ) }
+					label={ __(
+						'Optimize new image uploads',
+						'jcore-pakkaus'
+					) }
+					checked={ !! settings.image_auto_optimize }
+					onChange={ toggle( 'image_auto_optimize' ) }
+				/>
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={ __(
+						'Optimize new video uploads',
+						'jcore-pakkaus'
+					) }
 					checked={ !! settings.auto_optimize }
 					onChange={ toggle( 'auto_optimize' ) }
 				/>
@@ -500,7 +521,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 						'jcore-pakkaus'
 					) }
 					help={ __(
-						'Lets you restore the original later, at the cost of disk space.',
+						'Lets you restore original videos and PNG files later, at the cost of disk space.',
 						'jcore-pakkaus'
 					) }
 					checked={ !! settings.keep_original }
@@ -524,6 +545,135 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 						update( 'min_savings_percent', value ?? 0 )
 					}
 				/>
+			</Section>
+
+			<Section
+				title={ __( 'Images', 'jcore-pakkaus' ) }
+				description={ __(
+					'JPEG and PNG images, and every resized copy WordPress makes of them. The originals stay where they are.',
+					'jcore-pakkaus'
+				) }
+			>
+				{ service?.connected && ! service.info.images && (
+					<Notice status="warning" isDismissible={ false }>
+						{ __(
+							'The connected optimizer service is too old to optimize images. Update it first.',
+							'jcore-pakkaus'
+						) }
+					</Notice>
+				) }
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={ __( 'Create WebP versions', 'jcore-pakkaus' ) }
+					help={ __(
+						'Saved next to each file, e.g. photo.jpg.webp. The web server sends them to browsers that support WebP, and the original to the rest; see WebP delivery below.',
+						'jcore-pakkaus'
+					) }
+					checked={ !! settings.image_webp }
+					onChange={ toggle( 'image_webp' ) }
+				/>
+				{ !! settings.image_webp && (
+					<>
+						<RangeControl
+							__nextHasNoMarginBottom
+							__next40pxDefaultSize
+							label={ __( 'WebP quality', 'jcore-pakkaus' ) }
+							min={ 50 }
+							max={ 100 }
+							value={ Number( settings.image_webp_quality ) }
+							help={ __(
+								'For JPEG images. At 80, most people cannot tell the WebP version from the original.',
+								'jcore-pakkaus'
+							) }
+							onChange={ ( value ) =>
+								update( 'image_webp_quality', value ?? 80 )
+							}
+						/>
+						<ToggleControl
+							__nextHasNoMarginBottom
+							label={ __(
+								'Lossless WebP for PNG images',
+								'jcore-pakkaus'
+							) }
+							help={ __(
+								'Keeps logos, screenshots and text pixel-perfect. Turn it off if most PNG images are photos, for much smaller files.',
+								'jcore-pakkaus'
+							) }
+							checked={ !! settings.image_png_lossless }
+							onChange={ toggle( 'image_png_lossless' ) }
+						/>
+					</>
+				) }
+				<div className="jcore-pakkaus__field-row">
+					<SelectControl
+						__nextHasNoMarginBottom
+						__next40pxDefaultSize
+						label={ __( 'PNG compression', 'jcore-pakkaus' ) }
+						value={ settings.image_png }
+						options={ PNG_MODES }
+						help={ __(
+							'Replaces the PNG files themselves, for every browser. WordPress saves resized PNG files in full colour and barely compressed.',
+							'jcore-pakkaus'
+						) }
+						onChange={ ( value ) => update( 'image_png', value ) }
+					/>
+					{ settings.image_png === 'lossy' && (
+						<RangeControl
+							__nextHasNoMarginBottom
+							__next40pxDefaultSize
+							label={ __( 'PNG quality', 'jcore-pakkaus' ) }
+							min={ 30 }
+							max={ 100 }
+							value={ Number( settings.image_png_quality ) }
+							help={ __(
+								'Images that would lose more than this allows, such as photos with smooth gradients, are compressed losslessly instead.',
+								'jcore-pakkaus'
+							) }
+							onChange={ ( value ) =>
+								update( 'image_png_quality', value ?? 80 )
+							}
+						/>
+					) }
+				</div>
+				{ service?.connected &&
+					service.info.images &&
+					! service.info.images.png_lossy &&
+					settings.image_png === 'lossy' && (
+						<Notice status="warning" isDismissible={ false }>
+							{ __(
+								'The connected service has no lossy PNG compressor, so PNG files are compressed losslessly.',
+								'jcore-pakkaus'
+							) }
+						</Notice>
+					) }
+				<RangeControl
+					__nextHasNoMarginBottom
+					__next40pxDefaultSize
+					label={ __(
+						'Minimum saving per file (%)',
+						'jcore-pakkaus'
+					) }
+					min={ 0 }
+					max={ Math.max( 50, Number( settings.image_min_savings ) ) }
+					value={ Number( settings.image_min_savings ) }
+					help={ __(
+						'A WebP version or recompressed PNG is only kept when it is at least this much smaller.',
+						'jcore-pakkaus'
+					) }
+					onChange={ ( value ) =>
+						update( 'image_min_savings', value ?? 0 )
+					}
+				/>
+			</Section>
+
+			<Section
+				title={ __( 'WebP delivery', 'jcore-pakkaus' ) }
+				description={ __(
+					'WebP versions only help once the web server sends them. These Nginx rules send photo.jpg.webp in place of photo.jpg to browsers that support WebP.',
+					'jcore-pakkaus'
+				) }
+			>
+				<ServingCheck />
 			</Section>
 
 			<div

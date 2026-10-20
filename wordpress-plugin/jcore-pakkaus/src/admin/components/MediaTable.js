@@ -1,12 +1,6 @@
 import { Button, Spinner } from '@wordpress/components';
 import { __, _n, sprintf } from '@wordpress/i18n';
-import {
-	backup,
-	Icon,
-	seen,
-	update,
-	video as videoIcon,
-} from '@wordpress/icons';
+import { backup, Icon, seen, update } from '@wordpress/icons';
 import StatusBadge from './StatusBadge';
 import {
 	cx,
@@ -18,40 +12,41 @@ import {
 
 const RUNNING = [ 'queued', 'processing' ];
 
-function Thumbnail( { video } ) {
+function Thumbnail( { item, icon } ) {
 	return (
 		<span className="jcore-pakkaus__thumb">
-			{ video.thumbnail ? (
-				<img src={ video.thumbnail } alt="" loading="lazy" />
+			{ item.thumbnail ? (
+				<img src={ item.thumbnail } alt="" loading="lazy" />
 			) : (
-				<Icon icon={ videoIcon } size={ 28 } />
+				<Icon icon={ icon } size={ 28 } />
 			) }
-			{ video.duration && (
+			{ item.duration && (
 				<span className="jcore-pakkaus__thumb-duration">
-					{ video.duration }
+					{ item.duration }
 				</span>
 			) }
 		</span>
 	);
 }
 
-function SizeInfo( { video } ) {
-	if ( video.status !== 'optimized' || ! video.original_size ) {
+function SizeInfo( { item } ) {
+	if ( item.status !== 'optimized' || ! item.original_size ) {
 		return (
 			<span className="jcore-pakkaus__filesize">
-				{ video.filesize ? formatBytes( video.filesize ) : '–' }
+				{ item.filesize ? formatBytes( item.filesize ) : '–' }
 			</span>
 		);
 	}
 
-	const before = describeStream( video.before );
-	const after = describeStream( video.after );
+	const before = describeStream( item.before );
+	const after = describeStream( item.after );
+	const formats = item.formats ?? [];
 
 	return (
 		<>
 			<div className="jcore-pakkaus__sizes">
 				<span className="jcore-pakkaus__size-before">
-					{ formatBytes( video.original_size ) }
+					{ formatBytes( item.original_size ) }
 				</span>
 				<span className="jcore-pakkaus__arrow" aria-hidden="true">
 					→
@@ -59,13 +54,13 @@ function SizeInfo( { video } ) {
 				<span className="screen-reader-text">
 					{ __( 'optimized to', 'jcore-pakkaus' ) }
 				</span>
-				<strong>{ formatBytes( video.optimized_size ) }</strong>
+				<strong>{ formatBytes( item.optimized_size ) }</strong>
 				<span className="jcore-pakkaus__saving">
 					{ sprintf(
 						/* translators: %s: percentage saved, e.g. 42 % */
 						__( '−%s', 'jcore-pakkaus' ),
 						formatPercent(
-							1 - video.optimized_size / video.original_size
+							1 - item.optimized_size / item.original_size
 						)
 					) }
 				</span>
@@ -75,30 +70,60 @@ function SizeInfo( { video } ) {
 					{ before } → { after }
 				</div>
 			) }
+			{ item.kind === 'image' && (
+				<div className="jcore-pakkaus__streams">
+					{ [
+						formats.includes( 'webp' ) &&
+							__( 'With WebP', 'jcore-pakkaus' ),
+						sprintf(
+							/* translators: %s: number of files (the image and its resized copies) */
+							_n(
+								'%s file',
+								'%s files',
+								item.files,
+								'jcore-pakkaus'
+							),
+							formatNumber( item.files )
+						),
+					]
+						.filter( Boolean )
+						.join( ' · ' ) }
+				</div>
+			) }
 		</>
 	);
 }
 
-function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
-	const isRunning = RUNNING.includes( video.status );
-	const isActive = video.filter === 'active';
-	const isDone = [ 'optimized', 'skipped' ].includes( video.status );
+function MediaRow( {
+	item,
+	icon,
+	busyAction,
+	canOptimize,
+	canRestore,
+	onAction,
+	onCompare,
+} ) {
+	const isRunning = RUNNING.includes( item.status );
+	const isActive = item.filter === 'active';
+	const isDone = [ 'optimized', 'skipped' ].includes( item.status );
+	const canCompare =
+		item.kind === 'image' ? !! item.compare : item.has_backup;
 	const dimensions =
-		video.width && video.height ? `${ video.width }×${ video.height }` : '';
+		item.width && item.height ? `${ item.width }×${ item.height }` : '';
 
 	return (
-		<tr className={ cx( 'jcore-pakkaus__row', `is-${ video.filter }` ) }>
+		<tr className={ cx( 'jcore-pakkaus__row', `is-${ item.filter }` ) }>
 			<td className="jcore-pakkaus__cell-video">
-				<Thumbnail video={ video } />
+				<Thumbnail item={ item } icon={ icon } />
 				<div className="jcore-pakkaus__video-text">
 					<a
 						className="jcore-pakkaus__video-title"
-						href={ video.edit_url }
+						href={ item.edit_url }
 					>
-						{ video.title }
+						{ item.title }
 					</a>
 					<span className="jcore-pakkaus__video-meta">
-						{ [ video.filename, dimensions ]
+						{ [ item.filename, dimensions ]
 							.filter( Boolean )
 							.join( ' · ' ) }
 					</span>
@@ -106,16 +131,16 @@ function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
 			</td>
 			<td className="jcore-pakkaus__cell-status">
 				<StatusBadge
-					status={ video.status }
-					progress={ video.progress }
+					status={ item.status }
+					progress={ item.progress }
 				/>
-				{ video.status === 'processing' && (
+				{ item.status === 'processing' && (
 					<div
 						className="jcore-pakkaus__progress"
 						role="progressbar"
 						aria-valuemin={ 0 }
 						aria-valuemax={ 100 }
-						aria-valuenow={ Math.round( video.progress ) }
+						aria-valuenow={ Math.round( item.progress ) }
 						aria-label={ __(
 							'Optimization progress',
 							'jcore-pakkaus'
@@ -125,25 +150,25 @@ function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
 							style={ {
 								width: `${ Math.min(
 									100,
-									Math.max( 2, video.progress )
+									Math.max( 2, item.progress )
 								) }%`,
 							} }
 						/>
 					</div>
 				) }
-				{ video.message && (
+				{ item.message && (
 					<p
 						className={ cx(
 							'jcore-pakkaus__message',
-							video.status === 'failed' && 'is-error'
+							item.status === 'failed' && 'is-error'
 						) }
 					>
-						{ video.message }
+						{ item.message }
 					</p>
 				) }
 			</td>
 			<td className="jcore-pakkaus__cell-size">
-				<SizeInfo video={ video } />
+				<SizeInfo item={ item } />
 			</td>
 			<td className="jcore-pakkaus__cell-actions">
 				<div className="jcore-pakkaus__actions">
@@ -153,33 +178,36 @@ function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
 							size="compact"
 							variant={ isDone ? 'tertiary' : 'secondary' }
 							icon={ isDone ? update : undefined }
-							onClick={ () => onAction( video, 'optimize' ) }
+							onClick={ () => onAction( item, 'optimize' ) }
 						>
 							{ isDone
 								? __( 'Re-optimize', 'jcore-pakkaus' )
 								: __( 'Optimize', 'jcore-pakkaus' ) }
 						</Button>
 					) }
-					{ ! busyAction && video.has_backup && ! isRunning && (
+					{ ! busyAction && canCompare && ! isRunning && (
 						<Button
 							size="compact"
 							variant="tertiary"
 							icon={ seen }
-							onClick={ () => onCompare( video ) }
+							onClick={ () => onCompare( item ) }
 						>
 							{ __( 'Compare', 'jcore-pakkaus' ) }
 						</Button>
 					) }
-					{ ! busyAction && video.has_backup && ! isRunning && (
-						<Button
-							size="compact"
-							variant="tertiary"
-							icon={ backup }
-							onClick={ () => onAction( video, 'restore' ) }
-						>
-							{ __( 'Restore original', 'jcore-pakkaus' ) }
-						</Button>
-					) }
+					{ ! busyAction &&
+						canRestore &&
+						item.has_backup &&
+						! isRunning && (
+							<Button
+								size="compact"
+								variant="tertiary"
+								icon={ backup }
+								onClick={ () => onAction( item, 'restore' ) }
+							>
+								{ __( 'Restore original', 'jcore-pakkaus' ) }
+							</Button>
+						) }
 				</div>
 			</td>
 		</tr>
@@ -187,30 +215,30 @@ function VideoRow( { video, busyAction, canOptimize, onAction, onCompare } ) {
 }
 
 /**
- * The page of videos with their status, sizes and actions.
+ * The page of videos or images with their status, sizes and actions.
  *
  * @param {Object}   props
- * @param {Object[]} props.items       Videos as Library::item() returns them.
+ * @param {Object}   props.media       Entry of MEDIA.
+ * @param {Object[]} props.items       Attachments as Library::item() returns them.
  * @param {boolean}  props.isLoading   Whether a new page is loading.
- * @param {Object}   props.busy        Running action per video ID.
- * @param {boolean}  props.canOptimize Whether the service is configured.
- * @param {Function} props.onAction    Called with ( video, 'optimize'|'restore' ).
- * @param {Function} props.onCompare   Called with a video that has a kept original.
+ * @param {Object}   props.busy        Running action per attachment ID.
+ * @param {boolean}  props.canOptimize Whether the service is configured and nothing pauses it.
+ * @param {boolean}  props.canRestore  Whether originals can be restored now.
+ * @param {Function} props.onAction    Called with ( item, 'optimize'|'restore' ).
+ * @param {Function} props.onCompare   Called with an attachment that has two versions to compare.
  */
-export default function VideoTable( {
+export default function MediaTable( {
+	media,
 	items,
 	isLoading,
 	busy,
 	canOptimize,
+	canRestore = true,
 	onAction,
 	onCompare,
 } ) {
 	if ( ! items.length ) {
-		return (
-			<p className="jcore-pakkaus__no-results">
-				{ __( 'No videos match.', 'jcore-pakkaus' ) }
-			</p>
-		);
+		return <p className="jcore-pakkaus__no-results">{ media.noMatch }</p>;
 	}
 
 	return (
@@ -222,7 +250,7 @@ export default function VideoTable( {
 		>
 			<thead>
 				<tr>
-					<th scope="col">{ __( 'Video', 'jcore-pakkaus' ) }</th>
+					<th scope="col">{ media.column }</th>
 					<th scope="col">{ __( 'Status', 'jcore-pakkaus' ) }</th>
 					<th scope="col">{ __( 'Size', 'jcore-pakkaus' ) }</th>
 					<th scope="col">
@@ -233,12 +261,14 @@ export default function VideoTable( {
 				</tr>
 			</thead>
 			<tbody>
-				{ items.map( ( video ) => (
-					<VideoRow
-						key={ video.id }
-						video={ video }
-						busyAction={ busy[ video.id ] }
+				{ items.map( ( item ) => (
+					<MediaRow
+						key={ item.id }
+						item={ item }
+						icon={ media.icon }
+						busyAction={ busy[ item.id ] }
 						canOptimize={ canOptimize }
+						canRestore={ canRestore }
 						onAction={ onAction }
 						onCompare={ onCompare }
 					/>
@@ -252,20 +282,17 @@ export default function VideoTable( {
  * Previous / next navigation under the table.
  *
  * @param {Object}   props
+ * @param {Object}   props.media      Entry of MEDIA.
  * @param {number}   props.page       Current page.
  * @param {number}   props.totalPages Number of pages.
- * @param {number}   props.total      Number of matching videos.
+ * @param {number}   props.total      Number of matching attachments.
  * @param {Function} props.onChange   Called with the new page.
  */
-export function Pagination( { page, totalPages, total, onChange } ) {
+export function Pagination( { media, page, totalPages, total, onChange } ) {
 	return (
 		<div className="jcore-pakkaus__pagination">
 			<span className="jcore-pakkaus__pagination-total">
-				{ sprintf(
-					/* translators: %s: number of videos */
-					_n( '%s video', '%s videos', total, 'jcore-pakkaus' ),
-					formatNumber( total )
-				) }
+				{ media.count( total ) }
 			</span>
 			{ totalPages > 1 && (
 				<div className="jcore-pakkaus__pagination-pages">

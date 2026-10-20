@@ -14,12 +14,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Optimize videos with the optimizer service.
+ * Optimize videos and images with the optimizer service.
  */
 final class Cli {
 
 	/**
-	 * Send videos to the optimizer.
+	 * Send videos and images to the optimizer.
 	 *
 	 * ## OPTIONS
 	 *
@@ -27,15 +27,26 @@ final class Cli {
 	 * : Attachment IDs to optimize.
 	 *
 	 * [--all]
-	 * : Optimize every video in the media library that hasn't been optimized yet.
+	 * : Optimize every video and image in the media library that hasn't been optimized yet.
+	 *
+	 * [--type=<type>]
+	 * : With --all, only videos or only images.
+	 * ---
+	 * default: all
+	 * options:
+	 *   - all
+	 *   - video
+	 *   - image
+	 * ---
 	 *
 	 * [--force]
-	 * : With --all, also re-optimize videos that were already optimized or skipped.
+	 * : With --all, also re-optimize attachments that were already optimized or skipped.
 	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp pakkaus optimize 123 456
 	 *     wp pakkaus optimize --all
+	 *     wp pakkaus optimize --all --type=image
 	 *
 	 * @param array $args       Positional args.
 	 * @param array $assoc_args Flags.
@@ -49,12 +60,19 @@ final class Cli {
 		if ( WP_CLI\Utils\get_flag_value( $assoc_args, 'all', false ) ) {
 			$force = WP_CLI\Utils\get_flag_value( $assoc_args, 'force', false );
 			$ids   = array_filter(
-				$this->video_ids(),
+				$this->attachment_ids( $assoc_args['type'] ?? 'all' ),
 				static function ( $id ) use ( $force ) {
 					$status = Processor::status( $id );
 					return $force ? ! in_array( $status, Processor::ACTIVE_STATUSES, true ) : '' === $status;
 				}
 			);
+		}
+		if ( Conflicts::blocks_images() ) {
+			$count = count( $ids );
+			$ids   = array_values( array_filter( $ids, array( Processor::class, 'is_video' ) ) );
+			if ( count( $ids ) < $count ) {
+				WP_CLI::warning( Conflicts::message() );
+			}
 		}
 		if ( ! $ids ) {
 			WP_CLI::success( 'Nothing to optimize.' );
@@ -71,16 +89,26 @@ final class Cli {
 				WP_CLI::log( "#{$id}: queued" );
 			}
 		}
-		WP_CLI::success( sprintf( '%d of %d videos queued. Run `wp pakkaus status` to follow progress.', count( $ids ) - $failed, count( $ids ) ) );
+		WP_CLI::success( sprintf( '%d of %d attachments queued. Run `wp pakkaus status` to follow progress.', count( $ids ) - $failed, count( $ids ) ) );
 	}
 
 	/**
-	 * Show the optimization status of videos.
+	 * Show the optimization status of videos and images.
 	 *
 	 * ## OPTIONS
 	 *
 	 * [<id>...]
-	 * : Attachment IDs. Defaults to all videos.
+	 * : Attachment IDs. Defaults to every video and image.
+	 *
+	 * [--type=<type>]
+	 * : Without IDs, only videos or only images.
+	 * ---
+	 * default: all
+	 * options:
+	 *   - all
+	 *   - video
+	 *   - image
+	 * ---
 	 *
 	 * [--format=<format>]
 	 * : table, csv, json or yaml.
@@ -92,7 +120,7 @@ final class Cli {
 	 * @param array $assoc_args Flags.
 	 */
 	public function status( $args, $assoc_args ) {
-		$ids  = $args ? array_map( 'absint', $args ) : $this->video_ids();
+		$ids  = $args ? array_map( 'absint', $args ) : $this->attachment_ids( $assoc_args['type'] ?? 'all' );
 		$rows = array();
 		foreach ( $ids as $id ) {
 			$stats  = get_post_meta( $id, Processor::META_STATS, true );
@@ -103,7 +131,7 @@ final class Cli {
 				'progress'  => get_post_meta( $id, Processor::META_PROGRESS, true ),
 				'original'  => is_array( $stats ) ? size_format( $stats['original_size'], 1 ) : '',
 				'optimized' => is_array( $stats ) ? size_format( $stats['optimized_size'], 1 ) : '',
-				'backup'    => Processor::backup_path( $id ) ? 'yes' : '',
+				'backup'    => ( Images::is_image( $id ) ? Images::can_restore( $id ) : Processor::backup_path( $id ) ) ? 'yes' : '',
 				'message'   => get_post_meta( $id, Processor::META_MESSAGE, true ),
 			);
 		}
@@ -137,7 +165,8 @@ final class Cli {
 	}
 
 	/**
-	 * Restore the original (backed up) file of a video.
+	 * Restore the original (backed up) file of a video, or delete an image's WebP versions and put back its
+	 * kept original PNG files.
 	 *
 	 * ## OPTIONS
 	 *
@@ -166,19 +195,59 @@ final class Cli {
 			WP_CLI::error( $info->get_error_message() );
 		}
 		WP_CLI::success( sprintf( 'Connected to optimizer service %s (%s).', $info['version'], $info['ffmpeg'] ) );
+		if ( empty( $info['images'] ) ) {
+			WP_CLI::warning( 'This service version cannot optimize images; update it.' );
+		}
+		if ( Conflicts::blocks_images() ) {
+			WP_CLI::warning( Conflicts::message() );
+		}
 	}
 
 	/**
-	 * All video attachment IDs.
+	 * Check whether the web server gives browsers that take WebP the WebP versions, and the rest the originals.
+	 */
+	public function serving() {
+		$report = Images::check_serving();
+		switch ( $report['status'] ) {
+			case 'ok':
+				WP_CLI::success( sprintf( 'WebP versions are served by the Accept header, with Vary: Accept (%s).', $report['url'] ) );
+				break;
+			case 'no_vary':
+				WP_CLI::warning( sprintf( 'WebP versions are served, but without Vary: Accept, so caches may hand them to browsers without WebP support (%s).', $report['url'] ) );
+				break;
+			case 'untested':
+				WP_CLI::warning( 'No optimized image with a WebP version to test with yet.' );
+				break;
+			case 'error':
+				WP_CLI::error( sprintf( 'Could not request %s: %s', $report['url'], $report['error'] ) );
+				break;
+			case 'broken':
+				WP_CLI::error( sprintf( 'Browsers without WebP support also get WebP (%s).', $report['url'] ) );
+				break;
+			default:
+				WP_CLI::error( sprintf( 'The server does not hand out the WebP versions; it answered %s. See the Nginx instructions in the readme (%s).', $report['webp_type'], $report['url'] ) );
+		}
+	}
+
+	/**
+	 * Attachment IDs of the videos and images the optimizer handles.
+	 *
+	 * @param string $type `all`, `video` or `image`.
 	 *
 	 * @return int[]
 	 */
-	private function video_ids() {
+	private function attachment_ids( $type = 'all' ) {
+		$mime = array(
+			'video' => array( 'video' ),
+			'image' => Images::MIME_TYPES,
+			'all'   => array_merge( array( 'video' ), Images::MIME_TYPES ),
+		);
+
 		return get_posts(
 			array(
 				'post_type'      => 'attachment',
 				'post_status'    => 'any',
-				'post_mime_type' => 'video',
+				'post_mime_type' => $mime[ $type ] ?? $mime['all'],
 				'fields'         => 'ids',
 				'posts_per_page' => -1,
 				'orderby'        => 'ID',

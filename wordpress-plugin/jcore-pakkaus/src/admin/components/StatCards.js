@@ -1,5 +1,5 @@
 import { __, _n, sprintf } from '@wordpress/i18n';
-import { Icon, published, trendingDown, update, video } from '@wordpress/icons';
+import { Icon, published, trendingDown, update } from '@wordpress/icons';
 import { cx, formatBytes, formatNumber, formatPercent } from '../utils';
 
 function Stat( { icon, label, value, note, noteTone, meter, tone, isLive } ) {
@@ -40,12 +40,14 @@ function Stat( { icon, label, value, note, noteTone, meter, tone, isLive } ) {
 }
 
 /**
- * The library at a glance: how many videos, how many are done, and what it saved.
+ * The library at a glance: how many videos or images, how many are done, and
+ * what it saved. For images, the saving is for browsers that take WebP.
  *
  * @param {Object} props
- * @param {Object} props.summary The `summary` of GET /videos.
+ * @param {Object} props.media   Entry of MEDIA.
+ * @param {Object} props.summary The `summary` of GET /videos or /images.
  */
-export default function StatCards( { summary } ) {
+export default function StatCards( { media, summary } ) {
 	const { counts } = summary;
 	const original = summary.original_size;
 	const optimized = summary.optimized_size;
@@ -58,11 +60,11 @@ export default function StatCards( { summary } ) {
 		<div className="jcore-pakkaus__stats">
 			<Stat
 				tone="neutral"
-				icon={ video }
-				label={ __( 'Videos', 'jcore-pakkaus' ) }
+				icon={ media.icon }
+				label={ media.title }
 				value={ formatNumber( counts.all ) }
 				note={ sprintf(
-					/* translators: %s: number of videos */
+					/* translators: %s: number of videos or images */
 					_n(
 						'%s not optimized',
 						'%s not optimized',
@@ -114,7 +116,7 @@ export default function StatCards( { summary } ) {
 				note={
 					counts.failed
 						? sprintf(
-								/* translators: %s: number of videos */
+								/* translators: %s: number of videos or images */
 								_n(
 									'%s failed',
 									'%s failed',

@@ -38,7 +38,7 @@ function formatTime( seconds ) {
 	) }`;
 }
 
-function Fact( { label, size, dimensions } ) {
+export function Fact( { label, size, dimensions } ) {
 	return (
 		<div>
 			<dt>{ label }</dt>
