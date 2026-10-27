@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 import time
+from collections import deque
 from pathlib import Path
 
 import httpx
@@ -14,15 +15,18 @@ import httpx
 from PIL import Image
 
 from . import __version__, images, telemetry
-from .config import Settings, host_allowed
+from .config import Settings
 from .ffmpeg import Capabilities, FFmpegError, build_command, probe, transcode
 from .images import ImageCapabilities, ImageError
 from .models import ImageOptions, JobOptions
+from .net import DestinationNotAllowed, GuardedTransport
 from .store import ACTIVE_STATUSES, Store, public_job
 
 log = logging.getLogger(__name__)
 
 CALLBACK_BACKOFF = (5, 30, 120, 600, 1800)
+CALLBACK_TIMEOUT = 30
+MAX_REDIRECTS = 5
 PROGRESS_INTERVAL = 2.0
 
 
@@ -34,6 +38,30 @@ class JobCancelled(Exception):
     pass
 
 
+class FairQueue:
+    """Jobs waiting for a worker, taken from each API key in turn: one key's backlog only delays its own jobs."""
+
+    def __init__(self) -> None:
+        self._waiting: dict[str, deque[str]] = {}
+        self._items = asyncio.Semaphore(0)
+
+    def qsize(self) -> int:
+        return sum(len(jobs) for jobs in self._waiting.values())
+
+    def put_nowait(self, job_id: str, key: str = "") -> None:
+        self._waiting.setdefault(key, deque()).append(job_id)
+        self._items.release()
+
+    async def get(self) -> str:
+        await self._items.acquire()
+        key = next(iter(self._waiting))
+        jobs = self._waiting.pop(key)
+        job_id = jobs.popleft()
+        if jobs:
+            self._waiting[key] = jobs  # Back of the line, behind the other keys.
+        return job_id
+
+
 class JobRunner:
     def __init__(
         self, settings: Settings, store: Store, caps: Capabilities, image_caps: ImageCapabilities | None = None
@@ -43,19 +71,23 @@ class JobRunner:
         self.caps = caps
         self.image_caps = image_caps or ImageCapabilities(webp=False, pngquant=None)
         # Images get their own queue and workers, so a long transcode never holds them up.
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
-        self.image_queue: asyncio.Queue[str] = asyncio.Queue()
+        self.queue = FairQueue()
+        self.image_queue = FairQueue()
         self.active: set[str] = set()
         self.image_active: set[str] = set()
         self._tasks: list[asyncio.Task] = []
         self._background: set[asyncio.Task] = set()
         self._procs: dict[str, asyncio.subprocess.Process] = {}
         self._cancelled: set[str] = set()
+        # Redirects are followed by _download(), one checked request at a time, and no response is decompressed:
+        # bodies are either streamed to disk as they are, or not read at all. trust_env=False, as a proxy from
+        # the environment would bypass the transport's address checks.
         self._http = httpx.AsyncClient(
-            follow_redirects=True,
+            transport=GuardedTransport(settings.allowed_hosts, settings.allow_private_networks),
+            follow_redirects=False,
+            trust_env=False,
             timeout=httpx.Timeout(30, read=120),
-            headers={"User-Agent": f"jcore-pakkaus-service/{__version__}"},
-            event_hooks={"request": [self._check_host]},
+            headers={"User-Agent": f"jcore-pakkaus-service/{__version__}", "Accept-Encoding": "identity"},
         )
         # Pillow's own decompression-bomb guard, in line with the limit image jobs are checked against.
         Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
@@ -74,11 +106,6 @@ class JobRunner:
         """One result of an image job: `optimized` (same format, smaller) or a format such as `webp`."""
         return self.job_dir(job_id) / "files" / f"{index}.{variant}"
 
-    async def _check_host(self, request: httpx.Request) -> None:
-        # Runs for every request including redirects, so a redirect can't escape the allowlist.
-        if not host_allowed(request.url.host, self.settings.allowed_hosts):
-            raise JobError(f"Host {request.url.host!r} is not in ALLOWED_HOSTS")
-
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
@@ -91,7 +118,7 @@ class JobRunner:
         for job in self.store.jobs_with_status(ACTIVE_STATUSES):
             log.info("Re-queueing interrupted job %s", job["id"])
             self.store.update_job(job["id"], status="queued", progress=0)
-            self.enqueue(job["id"], job.get("kind") or "video")
+            self.enqueue(job["id"], job.get("kind") or "video", job.get("api_key_id") or "")
 
         for n in range(self.settings.workers):
             self._tasks.append(asyncio.create_task(self._worker(self.queue), name=f"worker-{n}"))
@@ -110,8 +137,11 @@ class JobRunner:
         await asyncio.gather(*self._tasks, *self._background, return_exceptions=True)
         await self._http.aclose()
 
-    def enqueue(self, job_id: str, kind: str = "video") -> None:
-        (self.image_queue if kind == "image" else self.queue).put_nowait(job_id)
+    def enqueue(self, job_id: str, kind: str = "video", key: str | None = None) -> None:
+        if key is None:
+            job = self.store.get_job(job_id)
+            key = (job or {}).get("api_key_id") or ""
+        (self.image_queue if kind == "image" else self.queue).put_nowait(job_id, key)
 
     def cancel(self, job_id: str) -> None:
         self._cancelled.add(job_id)
@@ -125,7 +155,7 @@ class JobRunner:
 
     # ----------------------------------------------------------- processing
 
-    async def _worker(self, queue: asyncio.Queue[str], lane: set[str] | None = None) -> None:
+    async def _worker(self, queue: FairQueue, lane: set[str] | None = None) -> None:
         while True:
             job_id = await queue.get()
             self.active.add(job_id)
@@ -140,7 +170,6 @@ class JobRunner:
                 if lane is not None:
                     lane.discard(job_id)
                 self._cancelled.discard(job_id)
-                queue.task_done()
 
     async def _process(self, job_id: str) -> None:
         job = self.store.get_job(job_id)
@@ -250,10 +279,18 @@ class JobRunner:
         log.info("Job %s: optimizing %d image file(s)", job_id, len(files))
 
         results = []
-        for index, item in enumerate(files):
-            self._check_cancel(job_id)
-            results.append(await self._optimize_image(job_id, index, item, opts))
-            self.store.update_job(job_id, progress=round((index + 1) / len(files) * 99, 1))
+        try:
+            # The whole job has a deadline, so slow sources can't hold an image worker for hours.
+            async with asyncio.timeout(self.settings.image_job_timeout):
+                for index, item in enumerate(files):
+                    self._check_cancel(job_id)
+                    results.append(await self._optimize_image(job_id, index, item, opts))
+                    self.store.update_job(job_id, progress=round((index + 1) / len(files) * 99, 1))
+        except TimeoutError as exc:
+            proc = self._procs.get(job_id)
+            if proc and proc.returncode is None:
+                proc.kill()
+            raise JobError(f"Optimizing the images took longer than {self.settings.image_job_timeout} seconds") from exc
         self._check_cancel(job_id)
 
         done = [r for r in results if "error" not in r]
@@ -283,7 +320,8 @@ class JobRunner:
         src = self.image_output_path(job_id, index, "source")
         keep = 1 - opts.min_savings_percent / 100
         try:
-            await self._download(job_id, item["url"], src, self.settings.max_image_bytes)
+            await self._download(job_id, item["url"], src, self.settings.max_image_bytes,
+                                 self.settings.image_download_timeout)
             info = await asyncio.to_thread(images.inspect, src, self.settings.max_image_pixels)
             entry.update(size=info.size, format=info.format.lower(), width=info.width, height=info.height,
                          variants={}, served_size=info.size)
@@ -339,27 +377,48 @@ class JobRunner:
         # Lossless keeps the colour profile as it is.
         return await asyncio.to_thread(images.optimize_png_lossless, src, dst)
 
-    async def _download(self, job_id: str, url: str, dest: Path, limit: int | None = None) -> None:
+    async def _download(
+        self, job_id: str, url: str, dest: Path, limit: int | None = None, timeout: float | None = None
+    ) -> None:
         limit = limit or self.settings.max_input_bytes
-        total = 0
         try:
-            async with asyncio.timeout(self.settings.download_timeout):
-                self._check_cancel(job_id)
-                async with self._http.stream("GET", url) as resp:
-                    if resp.status_code != 200:
-                        raise JobError(f"Downloading the source failed with HTTP {resp.status_code}")
-                    length = resp.headers.get("content-length")
-                    if length and length.isdigit() and int(length) > limit:
-                        raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
-                    with dest.open("wb") as fh:
-                        async for chunk in resp.aiter_raw():
-                            total += len(chunk)
-                            if total > limit:
-                                raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
-                            self._check_cancel(job_id)
-                            fh.write(chunk)
-        except TimeoutError as exc:
+            async with asyncio.timeout(timeout or self.settings.download_timeout):
+                request = self._http.build_request("GET", url)
+                for _ in range(MAX_REDIRECTS + 1):
+                    self._check_cancel(job_id)
+                    resp = await self._http.send(request, stream=True)
+                    try:
+                        # A redirect's body is never read; the next hop is checked like the first request.
+                        if resp.next_request is None:
+                            return await self._save(job_id, resp, dest, limit)
+                        request = resp.next_request
+                    finally:
+                        await resp.aclose()
+                raise JobError("The source redirected too many times")
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise JobError("Downloading the source timed out") from exc
+        except DestinationNotAllowed as exc:
+            raise JobError(str(exc)) from exc
+        except httpx.HTTPError as exc:
+            # The details stay in the log: the job's message is shown to its submitter, and connection errors
+            # would tell them which hosts and ports the service can reach.
+            log.info("Job %s: download failed: %s", job_id, exc)
+            raise JobError("Could not connect to the source") from exc
+
+    async def _save(self, job_id: str, resp: httpx.Response, dest: Path, limit: int) -> None:
+        if resp.status_code != 200:
+            raise JobError(f"Downloading the source failed with HTTP {resp.status_code}")
+        length = resp.headers.get("content-length")
+        if length and length.isdigit() and int(length) > limit:
+            raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
+        total = 0
+        with dest.open("wb") as fh:
+            async for chunk in resp.aiter_raw():
+                total += len(chunk)
+                if total > limit:
+                    raise JobError(f"Source is larger than the {limit // 1048576} MB limit")
+                self._check_cancel(job_id)
+                fh.write(chunk)
         if total == 0:
             raise JobError("Downloaded source file is empty")
 
@@ -391,18 +450,23 @@ class JobRunner:
                 headers["X-Video-Optimizer-Timestamp"] = timestamp
                 headers["X-Video-Optimizer-Signature"] = f"sha256={signature}"
             try:
-                resp = await self._http.post(job["callback_url"], content=body, headers=headers, timeout=30)
+                # Only the status matters: the response body is never read, and the whole attempt has a deadline.
+                async with asyncio.timeout(CALLBACK_TIMEOUT):
+                    request = self._http.build_request("POST", job["callback_url"], content=body, headers=headers)
+                    resp = await self._http.send(request, stream=True)
+                    await resp.aclose()
                 if resp.status_code < 300:
                     log.info("Job %s: callback delivered", job_id)
                     telemetry.callbacks.add(1, {"result": "delivered"})
                     return
-                if 400 <= resp.status_code < 500 and resp.status_code not in (408, 409, 425, 429):
+                # Redirects aren't followed, so retrying one wouldn't help either.
+                if resp.status_code < 500 and resp.status_code not in (408, 409, 425, 429):
                     log.warning("Job %s: callback rejected with HTTP %s, not retrying", job_id, resp.status_code)
                     telemetry.callbacks.add(1, {"result": "rejected"})
                     return
                 log.warning("Job %s: callback returned HTTP %s", job_id, resp.status_code)
             except Exception as exc:  # noqa: BLE001 - network errors, allowlist errors, ...
-                log.warning("Job %s: callback failed: %s", job_id, exc)
+                log.warning("Job %s: callback failed: %s", job_id, exc or exc.__class__.__name__)
             if attempt + 1 < self.settings.callback_retries:
                 await asyncio.sleep(CALLBACK_BACKOFF[min(attempt, len(CALLBACK_BACKOFF) - 1)])
         log.error("Job %s: giving up on callback; the client has to poll", job_id)

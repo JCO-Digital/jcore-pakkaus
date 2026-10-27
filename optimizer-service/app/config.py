@@ -10,6 +10,11 @@ def _int(name: str, default: int) -> int:
     return int(value) if value else default
 
 
+def _bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    return value in ("1", "true", "yes", "on") if value else default
+
+
 def _list(name: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in os.getenv(name, "").split(",") if item.strip())
 
@@ -37,6 +42,11 @@ class Settings:
     github_client_secret: str = ""
     github_org: str = "JCO-Digital"
     admin_users: tuple[str, ...] = ()
+    allow_private_networks: bool = False
+    image_job_timeout: int = 600
+    image_download_timeout: int = 60
+    max_jobs_per_key: int = 50
+    max_image_jobs_per_key: int = 500
 
     @property
     def dashboard_enabled(self) -> bool:
@@ -92,6 +102,11 @@ def load_settings() -> Settings:
         github_client_secret=github_client_secret,
         github_org=os.getenv("GITHUB_ORG", "JCO-Digital").strip(),
         admin_users=tuple(login.lower() for login in _list("ADMIN_USERS")),
+        allow_private_networks=_bool("ALLOW_PRIVATE_NETWORKS"),
+        image_job_timeout=max(1, _int("IMAGE_JOB_TIMEOUT_SECONDS", 600)),
+        image_download_timeout=max(1, _int("IMAGE_DOWNLOAD_TIMEOUT_SECONDS", 60)),
+        max_jobs_per_key=max(0, _int("MAX_JOBS_PER_KEY", 50)),
+        max_image_jobs_per_key=max(0, _int("MAX_IMAGE_JOBS_PER_KEY", 500)),
     )
 
 

@@ -130,8 +130,13 @@ Outside the compose file (local development, the Dockerfile build pack), the das
 | `MAX_IMAGE_MEGAPIXELS` | `50` | Skip images with more pixels than this, checked from the header before decoding. |
 | `MAX_REQUEST_KB` | `256` | Maximum API JSON body size. Authentication runs before the body is read; the limit includes chunked requests. An image job with 100 files fits comfortably. |
 | `JOB_TIMEOUT_SECONDS` | `14400` | Kill a transcode that runs longer than this. |
+| `IMAGE_JOB_TIMEOUT_SECONDS` | `600` | Fail an image job (all its files, downloads included) that takes longer than this. |
+| `IMAGE_DOWNLOAD_TIMEOUT_SECONDS` | `60` | Give up on downloading one image file after this. Video downloads use `DOWNLOAD_TIMEOUT_SECONDS` (default 1800). |
+| `MAX_JOBS_PER_KEY` | `50` | Unfinished (queued or running) video jobs one API key may have. More get HTTP 429, and the plugin sends them later. `0` = no limit. |
+| `MAX_IMAGE_JOBS_PER_KEY` | `500` | The same for image jobs. Waiting jobs are taken from each key in turn, so one site's backlog doesn't hold up the others. |
 | `JOB_TTL_HOURS` | `24` | Finished jobs and their files are deleted after this (the plugin deletes them sooner). |
 | `ALLOWED_HOSTS` | *(any)* | Comma-separated hosts the service may download from / call back to, e.g. `example.com,*.example.com`. Recommended. |
+| `ALLOW_PRIVATE_NETWORKS` | `false` | Downloads and callbacks only go to public addresses: host names resolving to loopback, private, link-local (e.g. cloud metadata) or other non-public addresses are refused. Set to `true` when the sites are on the same private network as the service. Redirects are followed for downloads only, at most 5, each checked the same way. |
 | `CALLBACK_RETRIES` | `5` | Callback attempts (with back-off) before relying on the plugin's polling. |
 | `LOG_LEVEL` | `info` | |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(none)* | OTLP/HTTP endpoint for metrics, e.g. `http://prometheus:9090/api/v1/otlp`. Exports HTTP request metrics and `pakkaus_*` job, byte, callback and queue metrics. Unset disables export. |

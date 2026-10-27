@@ -13,6 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__, admin, telemetry
 from .config import host_allowed, load_settings
+from .net import is_public, literal_address
 from .ffmpeg import detect_capabilities
 from .images import MIME_TYPES, detect_image_capabilities
 from .models import ImageJobCreate, JobCreate
@@ -111,14 +112,34 @@ def info(request: Request) -> dict:
     }
 
 
+def check_destinations(*urls) -> None:
+    """Turn away URLs the worker would refuse anyway. Host names are only resolved when they're fetched."""
+    for url in filter(None, urls):
+        address = literal_address(url.host)
+        if not host_allowed(url.host, settings.allowed_hosts) or (
+            address is not None and not settings.allow_private_networks and not is_public(address)
+        ):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Host {url.host!r} is not allowed")
+
+
+def check_capacity(request: Request, key_id: str, kind: str) -> None:
+    """One key's backlog is capped, so a single site can't fill the queues for everyone."""
+    limit = settings.max_image_jobs_per_key if kind == "image" else settings.max_jobs_per_key
+    if limit and request.app.state.store.unfinished_jobs(key_id, kind) >= limit:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"This API key already has {limit} unfinished {kind} jobs; try again when some have finished",
+            headers={"Retry-After": "60"},
+        )
+
+
 @app.post("/jobs", status_code=status.HTTP_201_CREATED)
 def create_job(request: Request, body: JobCreate, key_id: str = Depends(require_token)) -> dict:
     caps = request.app.state.caps
     if not caps.codecs.get(body.options.codec):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Codec {body.options.codec} is not available")
-    for url in filter(None, (body.source_url, body.callback_url)):
-        if not host_allowed(url.host, settings.allowed_hosts):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Host {url.host!r} is not allowed")
+    check_destinations(body.source_url, body.callback_url)
+    check_capacity(request, key_id, "video")
 
     job = request.app.state.store.create_job({
         "id": uuid.uuid4().hex,
@@ -142,10 +163,8 @@ def create_image_job(request: Request, body: ImageJobCreate, key_id: str = Depen
     for fmt in body.options.formats:
         if not image_caps.formats.get(fmt):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Creating {fmt} images is not available")
-    urls = [body.callback_url, *(item.url for item in body.files)]
-    for url in filter(None, urls):
-        if not host_allowed(url.host, settings.allowed_hosts):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Host {url.host!r} is not allowed")
+    check_destinations(body.callback_url, *(item.url for item in body.files))
+    check_capacity(request, key_id, "image")
 
     job = request.app.state.store.create_job({
         "id": uuid.uuid4().hex,

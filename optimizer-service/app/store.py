@@ -160,6 +160,13 @@ class Store:
             (older_than, *TERMINAL_STATUSES),
         )]
 
+    def unfinished_jobs(self, key_id: str, kind: str) -> int:
+        marks = ", ".join("?" for _ in ACTIVE_STATUSES)
+        return self._query(
+            f"SELECT COUNT(*) FROM jobs WHERE api_key_id = ? AND kind = ? AND status IN ({marks})",
+            (key_id, kind, *ACTIVE_STATUSES),
+        )[0][0]
+
     def job_counts(self) -> dict[str, int]:
         return {row[0]: row[1] for row in self._query("SELECT status, COUNT(*) FROM jobs GROUP BY status")}
 
