@@ -56,6 +56,8 @@ services:
     environment:
       API_TOKEN: dev-token-0123456789abcdefghijklmnop
       WORKERS: 2
+      # WordPress is reached at http://wordpress on the compose network.
+      ALLOW_PRIVATE_NETWORKS: "true"
       LOG_LEVEL: info
     volumes:
       - optimizer:/data

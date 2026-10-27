@@ -146,14 +146,14 @@ final class Images {
 		$staged   = array();
 		foreach ( array_values( $sent ) as $index => $file ) {
 			$result = is_array( $results[ $index ] ) ? $results[ $index ] : array();
-			if ( ( $result['name'] ?? null ) !== $file['name'] ) {
+			if ( ( $result['name'] ?? null ) !== $file['name'] || ! self::is_own_file( $file['file'] ?? '', $id ) ) {
 				self::discard( $staged );
 				return new \WP_Error( 'jcore_pakkaus_files_mismatch', __( 'The optimized files do not match the files that were sent.', 'jcore-pakkaus' ) );
 			}
 
-			$path   = self::path( $file['file'] );
+			$path   = Uploads::path( $file['file'] );
 			$before = $previous[ $file['file'] ] ?? array();
-			$backup = isset( $before['backup'] ) && '' !== $before['backup'] && file_exists( self::path( $before['backup'] ) ) ? $before['backup'] : '';
+			$backup = isset( $before['backup'] ) && '' !== $before['backup'] && file_exists( Uploads::path( $before['backup'] ) ) ? $before['backup'] : '';
 			$record = array(
 				'name'          => (string) $file['name'],
 				'file'          => (string) $file['file'],
@@ -215,7 +215,7 @@ final class Images {
 		}
 
 		foreach ( $records as $index => $record ) {
-			$path = self::path( $record['file'] );
+			$path = Uploads::path( $record['file'] );
 			if ( ! empty( $record['done'] ) ) {
 				// Versions an earlier run made that this one didn't would show an older file.
 				foreach ( array_diff( self::FORMATS, array_keys( $record['formats'] ) ) as $format ) {
@@ -270,7 +270,7 @@ final class Images {
 		if ( ! @rename( $item['tmp'], $target ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- atomic within the uploads directory.
 			wp_delete_file( $item['tmp'] );
 			if ( $made_backup ) {
-				@rename( self::path( $record['backup'] ), $item['path'] ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename
+				@rename( Uploads::path( $record['backup'] ), $item['path'] ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename
 				$record['backup'] = '';
 			}
 			$record['message'] = __( 'Could not move an optimized file into place.', 'jcore-pakkaus' );
@@ -298,12 +298,12 @@ final class Images {
 	public static function restore( $id ) {
 		$records = self::records( $id );
 		foreach ( $records as $file => $record ) {
-			$path = self::path( $file );
+			$path = Uploads::path( $file );
 			foreach ( self::FORMATS as $format ) {
 				self::delete( self::sidecar( $path, $format ) );
 			}
 			if ( '' !== $record['backup'] ) {
-				$backup = self::path( $record['backup'] );
+				$backup = Uploads::path( $record['backup'] );
 				if ( file_exists( $backup ) && ! @rename( $backup, $path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- atomic within the uploads directory.
 					return new \WP_Error( 'jcore_pakkaus_restore_failed', __( 'Could not restore the original file.', 'jcore-pakkaus' ) );
 				}
@@ -326,8 +326,8 @@ final class Images {
 	public static function original_path( $id ) {
 		$attached = (string) get_attached_file( $id );
 		foreach ( self::records( $id ) as $file => $record ) {
-			if ( '' !== $record['backup'] && self::path( $file ) === $attached && is_file( self::path( $record['backup'] ) ) ) {
-				return self::path( $record['backup'] );
+			if ( '' !== $record['backup'] && Uploads::path( $file ) === $attached && is_file( Uploads::path( $record['backup'] ) ) ) {
+				return Uploads::path( $record['backup'] );
 			}
 		}
 
@@ -359,7 +359,7 @@ final class Images {
 	public static function delete_backups( $id ) {
 		foreach ( self::records( $id ) as $record ) {
 			if ( '' !== $record['backup'] ) {
-				self::delete( self::path( $record['backup'] ) );
+				self::delete( Uploads::path( $record['backup'] ) );
 			}
 		}
 	}
@@ -403,7 +403,7 @@ final class Images {
 		$changed = false;
 		$known   = array();
 		foreach ( $records as $file => $record ) {
-			$path                          = self::path( $file );
+			$path                          = Uploads::path( $file );
 			$known[ wp_basename( $file ) ] = true;
 			clearstatcache( true, $path );
 			if ( is_file( $path ) && filesize( $path ) === $record['size'] && filemtime( $path ) === $record['mtime'] ) {
@@ -417,7 +417,8 @@ final class Images {
 
 		// Files the metadata lists that were never optimized, such as a size added since.
 		$attached = (string) ( $data['file'] ?? '' );
-		$dir      = '' !== $attached ? dirname( self::path( $attached ) ) : dirname( (string) get_attached_file( $id ) );
+		$full     = Uploads::path( $attached );
+		$dir      = '' !== $full ? dirname( $full ) : dirname( (string) get_attached_file( $id ) );
 		$current  = array( wp_basename( $attached ) );
 		foreach ( (array) ( $data['sizes'] ?? array() ) as $size ) {
 			$current[] = wp_basename( (string) ( $size['file'] ?? '' ) );
@@ -557,21 +558,38 @@ final class Images {
 		$stats   = get_post_meta( $id, Processor::META_STATS, true );
 		$records = array();
 		foreach ( is_array( $stats ) && isset( $stats['files'] ) && is_array( $stats['files'] ) ? $stats['files'] : array() as $record ) {
-			if ( is_array( $record ) && ! empty( $record['file'] ) ) {
-				$records[ (string) $record['file'] ] = array_merge(
-					array(
-						'original_size' => 0,
-						'size'          => 0,
-						'mtime'         => 0,
-						'formats'       => array(),
-						'backup'        => '',
-					),
-					$record
-				);
+			// Records naming anything but the attachment's own image files are ignored; see Uploads.
+			if ( ! is_array( $record ) || ! self::is_own_file( $record['file'] ?? '', $id ) ) {
+				continue;
 			}
+			$record = array_merge(
+				array(
+					'original_size' => 0,
+					'size'          => 0,
+					'mtime'         => 0,
+					'formats'       => array(),
+					'backup'        => '',
+				),
+				$record
+			);
+			// Kept originals are always named <name>.original.png, next to the file.
+			$backup                     = $record['backup'];
+			$record['backup']           = is_string( $backup ) && preg_match( '/\.original(-\d+)?\.png$/i', $backup ) && self::is_own_file( $backup, $id ) ? $backup : '';
+			$records[ $record['file'] ] = $record;
 		}
 
 		return $records;
+	}
+
+	/**
+	 * Whether a stored path names a JPEG or PNG file in the attachment's own folder.
+	 *
+	 * @param mixed $file Path relative to the uploads directory.
+	 * @param int   $id   Attachment ID.
+	 * @return bool
+	 */
+	private static function is_own_file( $file, $id ) {
+		return is_string( $file ) && self::is_image_file( $file ) && Uploads::beside_attachment( $file, $id );
 	}
 
 	/**
@@ -626,18 +644,6 @@ final class Images {
 	}
 
 	/**
-	 * Absolute path of a file relative to the uploads directory.
-	 *
-	 * @param string $file Relative path.
-	 * @return string
-	 */
-	private static function path( $file ) {
-		$uploads = wp_get_upload_dir();
-
-		return path_join( $uploads['basedir'], $file );
-	}
-
-	/**
 	 * Whether a path names a JPEG or PNG file.
 	 *
 	 * @param string $file Path.
@@ -653,7 +659,7 @@ final class Images {
 	 * @param string $path Path.
 	 */
 	private static function delete( $path ) {
-		if ( file_exists( $path ) ) {
+		if ( '' !== $path && file_exists( $path ) ) {
 			wp_delete_file( $path );
 		}
 	}

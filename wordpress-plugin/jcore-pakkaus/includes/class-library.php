@@ -293,9 +293,8 @@ final class Library {
 	 * @return array<string, array<string, mixed>>|null
 	 */
 	private static function image_compare( int $id, array $record, string $url ): ?array {
-		$uploads    = wp_get_upload_dir();
 		$backup     = (string) ( $record['backup'] ?? '' );
-		$has_backup = '' !== $backup && is_file( path_join( $uploads['basedir'], $backup ) );
+		$has_backup = '' !== $backup && is_file( Uploads::path( $backup ) );
 		$webp       = (int) ( $record['formats']['webp'] ?? 0 );
 		$size       = (int) ( $record['size'] ?? 0 );
 
