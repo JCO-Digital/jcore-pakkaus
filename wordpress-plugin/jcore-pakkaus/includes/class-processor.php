@@ -67,6 +67,14 @@ final class Processor {
 	private static $submit_at_shutdown = array();
 
 	/**
+	 * Kinds of job (`video`, `image`) the service turned away as busy during this request. Other files of that
+	 * kind aren't sent until the next poll.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static $busy = array();
+
+	/**
 	 * Register hooks.
 	 */
 	public static function init() {
@@ -75,7 +83,31 @@ final class Processor {
 		add_action( self::CRON_POLL, array( __CLASS__, 'poll' ) );
 		add_action( self::CRON_FINALIZE, array( __CLASS__, 'finalize' ) );
 		add_action( 'delete_attachment', array( __CLASS__, 'on_delete_attachment' ) );
+		add_filter( 'import_post_meta_key', array( __CLASS__, 'import_meta_key' ) );
+		add_filter( 'wxr_export_skip_postmeta', array( __CLASS__, 'skip_export_meta' ), 10, 2 );
 		Images::init();
+	}
+
+	/**
+	 * Imports leave this plugin's post meta out. It describes files and service jobs of the site it came from,
+	 * not the freshly downloaded copies, and an import file could set it to anything; see Uploads.
+	 *
+	 * @param mixed $key Meta key about to be imported.
+	 * @return mixed The key, or false to skip it.
+	 */
+	public static function import_meta_key( $key ) {
+		return is_string( $key ) && str_starts_with( $key, self::META_PREFIX ) ? false : $key;
+	}
+
+	/**
+	 * Exports leave this plugin's post meta out, job secrets included.
+	 *
+	 * @param mixed $skip Whether to skip the meta.
+	 * @param mixed $key  Meta key.
+	 * @return mixed
+	 */
+	public static function skip_export_meta( $skip, $key ) {
+		return is_string( $key ) && str_starts_with( $key, self::META_PREFIX ) ? true : $skip;
 	}
 
 	/**
@@ -331,6 +363,13 @@ final class Processor {
 		}
 
 		if ( is_wp_error( $job ) ) {
+			// The service has as many of this site's jobs as it takes: the file waits, without using up an attempt.
+			if ( 'jcore_pakkaus_http_429' === $job->get_error_code() ) {
+				self::$busy[ self::kind( $id ) ] = true;
+				self::set_state( $id, 'pending', array( 'message' => __( 'The optimizer service is busy with other files from this site. This one is sent when there is room.', 'jcore-pakkaus' ) ) );
+				self::ensure_polling();
+				return $job;
+			}
 			$attempts = (int) get_post_meta( $id, self::META_ATTEMPTS, true ) + 1;
 			update_post_meta( $id, self::META_ATTEMPTS, $attempts );
 			$status = get_post_meta( $id, self::META_STATUS, true );
@@ -394,6 +433,16 @@ final class Processor {
 	}
 
 	/**
+	 * The kind of job an attachment gets.
+	 *
+	 * @param int $id Attachment ID.
+	 * @return string `image` or `video`.
+	 */
+	private static function kind( $id ) {
+		return Images::is_image( $id ) ? 'image' : 'video';
+	}
+
+	/**
 	 * Sync one attachment with the service.
 	 *
 	 * @param int $id Attachment ID.
@@ -411,7 +460,9 @@ final class Processor {
 			// Advance every attempt, including network failures, so later jobs get polled.
 			update_post_meta( $id, self::META_UPDATED, microtime( true ) );
 			if ( 'pending' === $status ) {
-				self::submit( $id );
+				if ( empty( self::$busy[ self::kind( $id ) ] ) ) {
+					self::submit( $id );
+				}
 				return;
 			}
 			$job_id = get_post_meta( $id, self::META_JOB, true );
@@ -758,7 +809,7 @@ final class Processor {
 		}
 
 		$backup = self::backup_path( $id );
-		$meta   = get_post_meta( $id, self::META_BACKUP, true );
+		$meta   = self::backup_meta( $id );
 		if ( ! $backup ) {
 			return new \WP_Error( 'jcore_pakkaus_no_backup', __( 'No backup of the original file exists.', 'jcore-pakkaus' ) );
 		}
@@ -766,9 +817,8 @@ final class Processor {
 			return new \WP_Error( 'jcore_pakkaus_in_progress', __( 'Wait for the running optimization to finish first.', 'jcore-pakkaus' ) );
 		}
 
-		$uploads  = wp_get_upload_dir();
 		$current  = get_attached_file( $id );
-		$original = path_join( $uploads['basedir'], $meta['attached'] );
+		$original = Uploads::path( $meta['attached'] );
 		$old_url  = wp_get_attachment_url( $id );
 
 		if ( $backup !== $original && ! @rename( $backup, $original ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename
@@ -838,13 +888,39 @@ final class Processor {
 	 * @return string
 	 */
 	public static function backup_path( $id ) {
-		$meta = get_post_meta( $id, self::META_BACKUP, true );
-		if ( ! is_array( $meta ) || empty( $meta['file'] ) ) {
+		$meta = self::backup_meta( $id );
+		if ( ! $meta ) {
 			return '';
 		}
-		$uploads = wp_get_upload_dir();
-		$path    = path_join( $uploads['basedir'], $meta['file'] );
+		$path = Uploads::path( $meta['file'] );
 		return file_exists( $path ) ? $path : '';
+	}
+
+	/**
+	 * The backup meta, if it names video files in the attachment's own folder; see Uploads.
+	 *
+	 * @param int $id Attachment ID.
+	 * @return array{file: string, attached: string, mime: string}|null
+	 */
+	private static function backup_meta( $id ) {
+		$meta = get_post_meta( $id, self::META_BACKUP, true );
+		if ( ! is_array( $meta ) ) {
+			return null;
+		}
+		foreach ( array( 'file', 'attached' ) as $key ) {
+			$file = $meta[ $key ] ?? '';
+			$type = is_string( $file ) ? wp_check_filetype( $file ) : array( 'type' => false );
+			if ( ! is_string( $type['type'] ) || ! str_starts_with( $type['type'], 'video/' ) || ! Uploads::beside_attachment( $file, $id ) ) {
+				return null;
+			}
+		}
+		$mime = is_string( $meta['mime'] ?? null ) && str_starts_with( $meta['mime'], 'video/' ) ? $meta['mime'] : wp_check_filetype( $meta['attached'] )['type'];
+
+		return array(
+			'file'     => $meta['file'],
+			'attached' => $meta['attached'],
+			'mime'     => $mime,
+		);
 	}
 
 	/**
@@ -857,9 +933,9 @@ final class Processor {
 		if ( ! self::backup_path( $id ) ) {
 			return '';
 		}
-		$meta    = get_post_meta( $id, self::META_BACKUP, true );
+		$meta    = self::backup_meta( $id );
 		$uploads = wp_get_upload_dir();
-		return $uploads['baseurl'] . '/' . ltrim( $meta['file'], '/' );
+		return $uploads['baseurl'] . '/' . $meta['file'];
 	}
 
 	/**

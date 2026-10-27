@@ -135,6 +135,11 @@ function wp_unique_filename( $dir, $name ) { return file_exists( $dir . '/' . $n
 function wp_generate_password( ...$args ) { return bin2hex( random_bytes( 4 ) ); }
 function wp_delete_file( $path ) { if ( file_exists( $path ) ) { unlink( $path ); } }
 function _wp_relative_upload_path( $path ) { return basename( $path ); }
+function wp_check_filetype( $file ) {
+	$types = array( 'mp4' => 'video/mp4', 'mov' => 'video/quicktime', 'png' => 'image/png', 'jpg' => 'image/jpeg' );
+	$ext   = strtolower( pathinfo( $file, PATHINFO_EXTENSION ) );
+	return array( 'ext' => isset( $types[ $ext ] ) ? $ext : false, 'type' => $types[ $ext ] ?? false );
+}
 function wp_generate_attachment_metadata( $id, $path ) { return array( 'filesize' => filesize( $path ) ); }
 function wp_update_attachment_metadata( $id, $metadata ) { $GLOBALS['attachment_metadata'] = $metadata; $GLOBALS['metadata_by_id'][ $id ] = $metadata; }
 function do_action( $hook, ...$args ) { $GLOBALS['actions'][] = $hook; }
@@ -145,6 +150,7 @@ require $plugin_dir . 'class-client.php';
 require $plugin_dir . 'class-processor.php';
 require $plugin_dir . 'class-images.php';
 require $plugin_dir . 'class-conflicts.php';
+require $plugin_dir . 'class-uploads.php';
 eval( 'namespace Jcore\\Pakkaus\\Rest; final class Callback_Controller { public static function url() { return "https://example.test/wp-json/jcore-pakkaus/v1/callback"; } }' );
 
 const PNG_HEAD = "\x89PNG\r\n\x1a\n";
@@ -177,7 +183,12 @@ function image_fixture() {
 	) ) );
 }
 
+function reset_busy() {
+	( new ReflectionProperty( Processor::class, 'busy' ) )->setValue( null, array() );
+}
+
 function reset_fixture() {
+	reset_busy();
 	$GLOBALS['meta'] = array( 1 => array( '_jcore_pakkaus_status' => 'processing', '_jcore_pakkaus_job_id' => 'job-1', '_jcore_pakkaus_secret' => 'secret', '_jcore_pakkaus_updated' => 1 ) );
 	$GLOBALS['cache'] = array();
 	$GLOBALS['deleted'] = array();
@@ -326,6 +337,25 @@ $tests = array(
 		check( false === Processor::enqueue( 1 ), 'Running video re-enqueued' );
 		check( 'job-1' === get_post_meta( 1, '_jcore_pakkaus_job_id', true ), 'Running job disturbed' );
 	},
+	'a busy service keeps files waiting without using up their attempts' => static function () {
+		foreach ( array( 2, 3 ) as $id ) {
+			$GLOBALS['meta'][ $id ] = array( '_jcore_pakkaus_status' => 'pending', '_jcore_pakkaus_updated' => $id );
+		}
+		$GLOBALS['on_get_job'] = static function () { return array( 'code' => 429, 'body' => json_encode( array( 'detail' => 'busy' ) ) ); };
+		Processor::refresh( 2 );
+		Processor::refresh( 3 );
+		check( array( 'jobs' ) === $GLOBALS['requested'], 'Kept sending while the service was busy' );
+		for ( $poll = 0; $poll < 6; $poll++ ) {
+			reset_busy();
+			Processor::refresh( 2 );
+		}
+		check( 'pending' === Processor::status( 2 ) && 0 === (int) get_post_meta( 2, '_jcore_pakkaus_attempts', true ), 'A busy service used up attempts' );
+		check( isset( $GLOBALS['scheduled']['jcore_pakkaus_poll'] ), 'Polling not scheduled' );
+		reset_busy();
+		$GLOBALS['on_get_job'] = static function () { return array( 'code' => 201, 'body' => json_encode( array( 'id' => 'job-3' ) ) ); };
+		Processor::refresh( 3 );
+		check( 'queued' === Processor::status( 3 ), 'Not sent once the service had room' );
+	},
 	'image files are the attached file and each resized JPEG or PNG once' => static function () {
 		image_fixture();
 		$files = Images::files( 5 );
@@ -402,6 +432,57 @@ $tests = array(
 		check( $original === file_get_contents( $dir . '/logo.png' ) && ! file_exists( $dir . '/logo.original.png' ), 'PNG not put back' );
 		check( ! file_exists( $dir . '/logo.png.webp' ) && ! file_exists( $dir . '/logo-150x150.png.webp' ), 'WebP versions left' );
 		check( strlen( $original ) === $GLOBALS['metadata_by_id'][5]['filesize'], 'Metadata file size not restored' );
+	},
+	'stored image paths outside the attachment folder are never read, moved or deleted' => static function () {
+		$job = image_fixture();
+		$dir = $GLOBALS['test_dir'];
+		Processor::finalize( 5, $job );
+		@mkdir( $dir . '/sub' );
+		file_put_contents( $dir . '/sub/secret.png', 'secret' );
+		file_put_contents( $dir . '/payload.png', PNG_HEAD . '<?php echo 1;' );
+		$escape = '../' . basename( $dir ) . '/sub/secret.png';
+		$stats  = get_post_meta( 5, '_jcore_pakkaus_stats', true );
+		$stats['files'] = array(
+			array( 'file' => 'logo.png', 'backup' => $escape ),
+			array( 'file' => 'sub/secret.png', 'formats' => array( 'webp' => 1 ), 'backup' => '' ),
+			array( 'file' => 'logo.php', 'backup' => 'payload.png' ),
+			array( 'file' => 'logo-150x150.png', 'backup' => $dir . '/sub/secret.png' ),
+		);
+		update_post_meta( 5, '_jcore_pakkaus_stats', $stats );
+		$logo = file_get_contents( $dir . '/logo.png' );
+		check( $dir . '/logo.png' === Images::original_path( 5 ), 'Original read from outside the attachment folder' );
+		Images::delete_backups( 5 );
+		check( true === Images::restore( 5 ), 'Restore failed' );
+		check( 'secret' === file_get_contents( $dir . '/sub/secret.png' ), 'File outside the attachment folder touched' );
+		check( file_exists( $dir . '/payload.png' ) && ! file_exists( $dir . '/logo.php' ), 'Backup moved to a non-image name' );
+		check( $logo === file_get_contents( $dir . '/logo.png' ), 'Attached file overwritten' );
+		unlink( $dir . '/sub/secret.png' );
+		rmdir( $dir . '/sub' );
+		unlink( $dir . '/payload.png' );
+	},
+	'stored video backup paths must be videos next to the attachment' => static function () {
+		$dir = $GLOBALS['test_dir'];
+		update_post_meta( 1, '_jcore_pakkaus_status', 'optimized' );
+		file_put_contents( $dir . '/video.original.mov', 'kept original' );
+		file_put_contents( $dir . '/notes.txt', 'not a video' );
+		$backup = array( 'file' => 'video.original.mov', 'attached' => 'video.mov', 'mime' => 'text/html' );
+		update_post_meta( 1, '_jcore_pakkaus_backup', $backup );
+		check( $dir . '/video.original.mov' === Processor::backup_path( 1 ), 'Valid backup not found' );
+		foreach ( array( '../' . basename( $dir ) . '/video.original.mov', $dir . '/video.original.mov', 'notes.txt', 'wp-admin/includes/file.php' ) as $file ) {
+			update_post_meta( 1, '_jcore_pakkaus_backup', array_merge( $backup, array( 'file' => $file ) ) );
+			check( '' === Processor::backup_path( 1 ), 'Backup path accepted: ' . $file );
+			Processor::on_delete_attachment( 1 );
+		}
+		update_post_meta( 1, '_jcore_pakkaus_backup', array_merge( $backup, array( 'attached' => '../video.mov' ) ) );
+		check( '' === Processor::backup_path( 1 ), 'Restore target outside the attachment folder accepted' );
+		check( file_exists( $dir . '/notes.txt' ) && file_exists( $dir . '/wp-admin/includes/file.php' ) && file_exists( $dir . '/video.original.mov' ), 'File deleted through a rejected backup path' );
+		unlink( $dir . '/video.original.mov' );
+		unlink( $dir . '/notes.txt' );
+	},
+	'imports and exports leave the plugin meta out' => static function () {
+		check( false === Processor::import_meta_key( '_jcore_pakkaus_backup' ) && false === Processor::import_meta_key( '_jcore_pakkaus_stats' ), 'Plugin meta imported' );
+		check( '_thumbnail_id' === Processor::import_meta_key( '_thumbnail_id' ), 'Other meta skipped on import' );
+		check( true === Processor::skip_export_meta( false, '_jcore_pakkaus_secret' ) && false === Processor::skip_export_meta( false, '_edit_last' ), 'Export filter wrong' );
 	},
 	'deleting an image file deletes its webp version' => static function () {
 		$file = $GLOBALS['test_dir'] . '/photo.png';
