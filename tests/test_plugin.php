@@ -75,7 +75,8 @@ function get_posts( $args ) {
 		if ( ( is_array( $type ) && ! in_array( $mime, $type, true ) ) || ( is_string( $type ) && '' !== $type && 0 !== strpos( $mime, $type ) ) ) {
 			return false;
 		}
-		return in_array( $GLOBALS['meta'][ $id ]['_jcore_pakkaus_status'], Processor::ACTIVE_STATUSES, true );
+		$status = $GLOBALS['meta'][ $id ]['_jcore_pakkaus_status'];
+		return isset( $args['meta_value'] ) ? $args['meta_value'] === $status : in_array( $status, Processor::ACTIVE_STATUSES, true );
 	} );
 	usort( $ids, static function ( $a, $b ) {
 		return $GLOBALS['meta'][ $a ]['_jcore_pakkaus_updated'] <=> $GLOBALS['meta'][ $b ]['_jcore_pakkaus_updated'];
@@ -125,6 +126,7 @@ function wp_schedule_single_event( $time, $hook, $args ) { $GLOBALS['scheduled']
 function wp_clear_scheduled_hook( $hook ) { unset( $GLOBALS['scheduled'][ $hook ] ); }
 function spawn_cron() {}
 function get_attached_file( $id ) { return isset( $GLOBALS['attached'][ $id ] ) ? $GLOBALS['attached'][ $id ] : $GLOBALS['original']; }
+function get_post_field( $field, $id, $context = 'display' ) { return isset( $GLOBALS['titles'][ $id ] ) ? $GLOBALS['titles'][ $id ] : ''; }
 function get_post_mime_type( $id ) { return isset( $GLOBALS['mime'][ $id ] ) ? $GLOBALS['mime'][ $id ] : 'video/mp4'; }
 function wp_get_attachment_url( $id ) { return isset( $GLOBALS['urls'][ $id ] ) ? $GLOBALS['urls'][ $id ] : 'https://example.test/video.mp4'; }
 function wp_get_attachment_metadata( $id ) { return isset( $GLOBALS['metadata_by_id'][ $id ] ) ? $GLOBALS['metadata_by_id'][ $id ] : array(); }
@@ -543,6 +545,27 @@ $tests = array(
 		$GLOBALS['on_get_job'] = static function () { return array( 'code' => 201, 'body' => json_encode( array( 'id' => 'img-2' ) ) ); };
 		Processor::poll();
 		check( isset( $GLOBALS['bodies']['images'] ) && 'queued' === Processor::status( 5 ), 'Image not resumed' );
+	},
+	'the WebP test lists optimized images with the sizes of their files and WebP versions' => static function () {
+		image_fixture();
+		$dir = $GLOBALS['test_dir'];
+		$GLOBALS['meta'][5]['_jcore_pakkaus_status'] = 'optimized';
+		check( array() === Images::serving_samples(), 'Image without a WebP version listed' );
+		file_put_contents( $dir . '/logo.png.webp', webp_bytes( 'full' ) );
+		file_put_contents( $dir . '/logo-150x150.png.webp', webp_bytes( 'thumb' ) );
+		$samples = Images::serving_samples();
+		check( 1 === count( $samples ) && 5 === $samples[0]['id'] && 'logo.png' === $samples[0]['title'], 'Wrong samples: ' . json_encode( $samples ) );
+		check(
+			array(
+				array( 'name' => 'full', 'url' => 'https://example.test/wp-content/uploads/logo.png', 'mime' => 'image/png', 'size' => filesize( $dir . '/logo.png' ), 'webp_size' => strlen( webp_bytes( 'full' ) ) ),
+				array( 'name' => 'thumbnail', 'url' => 'https://example.test/wp-content/uploads/logo-150x150.png', 'mime' => 'image/png', 'size' => filesize( $dir . '/logo-150x150.png' ), 'webp_size' => strlen( webp_bytes( 'thumb' ) ) ),
+			) === $samples[0]['files'],
+			'Wrong files: ' . json_encode( $samples[0]['files'] )
+		);
+		$GLOBALS['titles'][5] = 'Logo';
+		check( 'Logo' === Images::serving_samples()[0]['title'], 'Title not used' );
+		$GLOBALS['meta'][5]['_jcore_pakkaus_status'] = 'skipped';
+		check( array() === Images::serving_samples(), 'Image that was not optimized listed' );
 	},
 	'image settings are validated' => static function () {
 		$clean = Settings::sanitize( array( 'image_png' => 'extreme', 'image_webp_quality' => 500, 'image_png_quality' => 1, 'image_webp' => 0 ) );

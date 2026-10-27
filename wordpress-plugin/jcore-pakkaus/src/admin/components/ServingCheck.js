@@ -73,8 +73,11 @@ function describe( report ) {
 
 /**
  * The web server rules that hand out the WebP versions, and a check that they work.
+ *
+ * @param {Object}   props
+ * @param {Function} props.onOpenWebpTest Switches to the WebP test tab.
  */
-export default function ServingCheck() {
+export default function ServingCheck( { onOpenWebpTest } ) {
 	const [ report, setReport ] = useState( null );
 	const [ isChecking, setIsChecking ] = useState( false );
 	const [ isCopied, setIsCopied ] = useState( false );
@@ -137,6 +140,9 @@ export default function ServingCheck() {
 					onClick={ run }
 				>
 					{ __( 'Check delivery', 'jcore-pakkaus' ) }
+				</Button>
+				<Button variant="tertiary" onClick={ onOpenWebpTest }>
+					{ __( 'Test in this browser', 'jcore-pakkaus' ) }
 				</Button>
 			</div>
 			{ result && (

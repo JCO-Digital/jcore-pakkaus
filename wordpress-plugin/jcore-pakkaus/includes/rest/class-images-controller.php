@@ -47,6 +47,26 @@ final class Images_Controller extends Library_Controller {
 				$this->route( \WP_REST_Server::READABLE, 'check_serving' ),
 			)
 		);
+
+		register_rest_route(
+			$this->namespace,
+			'/' . $this->rest_base . '/serving/samples',
+			array(
+				$this->route( \WP_REST_Server::READABLE, 'serving_samples' ),
+			)
+		);
+	}
+
+	/**
+	 * GET /images/serving/samples — recently optimized images with the sizes of their files and WebP
+	 * versions, for the WebP test tab to load in the browser.
+	 *
+	 * @param \WP_REST_Request $request The REST request.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function serving_samples( $request ): \WP_REST_Response {
+		return rest_ensure_response( array( 'images' => Images::serving_samples() ) );
 	}
 
 	/**

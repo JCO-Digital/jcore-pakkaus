@@ -1017,11 +1017,22 @@ $tones: (
 	}
 
 	&__serving-check {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
 		margin: 14px 0 0;
 
 		+ .components-notice {
 			margin: 12px 0 0;
 		}
+	}
+
+	// ── WebP test tab ─────────────────────────────────────────────────────────
+
+	&__webp-intro {
+		max-width: 720px;
+		margin: 0 0 16px;
+		color: $text-muted;
 	}
 
 	&__savebar {

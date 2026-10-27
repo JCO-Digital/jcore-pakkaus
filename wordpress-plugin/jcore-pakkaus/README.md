@@ -87,6 +87,7 @@ Everything the admin app does goes through `jcore-pakkaus/v1`. All routes requir
 | `/videos/{id}/restore` | POST | Puts the backed-up original back |
 | `/images`, `/images/optimize-all`, `/images/{id}/optimize`, `/images/{id}/restore` | | The same for JPEG and PNG images; restoring deletes the WebP versions and puts kept PNG originals back |
 | `/images/serving` | GET | Requests an optimized image as browsers with and without WebP support do, and reports whether the server hands out the WebP versions |
+| `/images/serving/samples` | GET | Recently optimized images (attached file and one resized copy) with the sizes of each file and its WebP version, for the **WebP test** tab to load in the browser |
 
 ## Stored data
 

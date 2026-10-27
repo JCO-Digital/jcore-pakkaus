@@ -28,3 +28,6 @@ export const optimizeAll = ( type ) =>
 
 export const checkServing = () =>
 	apiFetch( { path: `${ BASE }/images/serving` } );
+
+export const getServingSamples = () =>
+	apiFetch( { path: `${ BASE }/images/serving/samples` } );

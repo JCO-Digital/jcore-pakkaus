@@ -65,7 +65,7 @@ location ~* ^/wp-content/uploads/.+\.(?:jpe?g|png)$ {
     try_files $uri$webp_suffix $uri =404;
 }`
 
-Then use **Settings → JCORE Pakkaus → Settings → WebP delivery → Check delivery**, or `wp pakkaus serving`. The project's `docs/webp-nginx.md` covers caching headers, CDNs and other upload paths.
+Then use **Settings → JCORE Pakkaus → Settings → WebP delivery → Check delivery**, or `wp pakkaus serving`. The **WebP test** tab checks the same from your own browser, through any CDN in front of the site. The project's `docs/webp-nginx.md` covers caching headers, CDNs and other upload paths.
 
 = Can I use it alongside another image optimization plugin? =
 

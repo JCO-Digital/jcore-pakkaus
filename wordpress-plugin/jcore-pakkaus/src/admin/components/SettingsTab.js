@@ -124,8 +124,14 @@ function CodecPicker( { value, available, onChange } ) {
  * @param {?Object}  props.service        Response of GET /service.
  * @param {boolean}  props.isChecking     Whether a connection check is running.
  * @param {Function} props.onCheckService Re-checks the connection; resolves to the result.
+ * @param {Function} props.onOpenWebpTest Switches to the WebP test tab.
  */
-export default function SettingsTab( { service, isChecking, onCheckService } ) {
+export default function SettingsTab( {
+	service,
+	isChecking,
+	onCheckService,
+	onOpenWebpTest,
+} ) {
 	const [ saved, setSaved ] = useState( null );
 	const [ settings, setSettings ] = useState( null );
 	const [ token, setToken ] = useState( '' );
@@ -673,7 +679,7 @@ export default function SettingsTab( { service, isChecking, onCheckService } ) {
 					'jcore-pakkaus'
 				) }
 			>
-				<ServingCheck />
+				<ServingCheck onOpenWebpTest={ onOpenWebpTest } />
 			</Section>
 
 			<div
