@@ -11,10 +11,12 @@ import { cx, errorMessage } from './utils';
 import ServiceStatus from './components/ServiceStatus';
 import DashboardTab from './components/DashboardTab';
 import SettingsTab from './components/SettingsTab';
+import WebpTest from './components/WebpTest';
 
 const TABS = [
 	{ name: 'videos', title: MEDIA.videos.title },
 	{ name: 'images', title: MEDIA.images.title },
+	{ name: 'webp', title: __( 'WebP test', 'jcore-pakkaus' ) },
 	{ name: 'settings', title: __( 'Settings', 'jcore-pakkaus' ) },
 ];
 
@@ -153,18 +155,25 @@ export default function App() {
 						className="jcore-pakkaus__panel"
 						hidden={ tab !== name }
 					>
-						{ MEDIA[ name ] ? (
+						{ MEDIA[ name ] && (
 							<DashboardTab
 								media={ MEDIA[ name ] }
 								isActive={ tab === name }
 								service={ service }
 								onOpenSettings={ () => selectTab( 'settings' ) }
 							/>
-						) : (
+						) }
+						{ name === 'webp' && (
+							<WebpTest
+								onOpenSettings={ () => selectTab( 'settings' ) }
+							/>
+						) }
+						{ name === 'settings' && (
 							<SettingsTab
 								service={ service }
 								isChecking={ isChecking }
 								onCheckService={ checkService }
+								onOpenWebpTest={ () => selectTab( 'webp' ) }
 							/>
 						) }
 					</div>

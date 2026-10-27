@@ -30,7 +30,7 @@ test doubles. It checks stale responses, poll fairness, retry followed by succes
 replacement, permanent errors, duplicate finalization, settings validation and partial
 updates, bulk queueing, and for images: which files are sent, installing WebP versions and smaller
 PNG files all-or-nothing with backups, files that changed meanwhile, restoring, and dropping WebP
-versions when something rewrites the files, and that stored paths outside an attachment's own folder are
+versions when something rewrites the files, which images and files the WebP test tab loads, and that stored paths outside an attachment's own folder are
 never read, moved or deleted, and that a busy service (HTTP 429) leaves files waiting without
 using up their attempts. It creates and cleans up its own temporary files; it does not
 access a live WordPress site.

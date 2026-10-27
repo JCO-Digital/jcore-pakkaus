@@ -452,7 +452,7 @@ final class Images {
 			'error'         => '',
 		);
 
-		$id = self::sample_id();
+		$id = self::sample_ids( 1 )[0] ?? 0;
 		if ( ! $id ) {
 			return $report;
 		}
@@ -484,18 +484,63 @@ final class Images {
 	}
 
 	/**
-	 * An optimized image with a WebP version of its attached file.
+	 * Recently optimized images for the admin page to load in the browser, to see what the web server sends
+	 * a real browser. Each lists its attached file and one resized copy (`medium` when it has a WebP
+	 * version) with the size of the file and of its WebP version, so the page can tell which one arrived.
 	 *
-	 * @return int Attachment ID, or 0.
+	 * @param int $limit Most images to return.
+	 * @return array<int, array{id: int, title: string, files: array<int, array{name: string, url: string, mime: string, size: int, webp_size: int}>}>
 	 */
-	private static function sample_id() {
-		$ids = get_posts(
+	public static function serving_samples( $limit = 6 ) {
+		$samples = array();
+		foreach ( self::sample_ids( $limit ) as $id ) {
+			$files = array();
+			foreach ( self::files( $id ) as $file ) {
+				$path = Uploads::path( $file['file'] );
+				$webp = '' !== $path ? self::sidecar( $path, 'webp' ) : '';
+				if ( '' === $webp || ! is_file( $webp ) ) {
+					continue;
+				}
+				$files[ $file['name'] ] = array(
+					'name'      => $file['name'],
+					'url'       => $file['url'],
+					'mime'      => (string) wp_check_filetype( $path )['type'],
+					'size'      => $file['size'],
+					'webp_size' => (int) filesize( $webp ),
+				);
+			}
+			$full = $files['full'] ?? null;
+			unset( $files['full'] );
+			$files = array_values( array_filter( array( $full, $files['medium'] ?? reset( $files ) ) ) );
+			if ( ! $files ) {
+				continue;
+			}
+
+			$title     = (string) get_post_field( 'post_title', $id, 'raw' );
+			$samples[] = array(
+				'id'    => $id,
+				'title' => '' !== $title ? $title : wp_basename( (string) get_attached_file( $id ) ),
+				'files' => $files,
+			);
+		}
+
+		return $samples;
+	}
+
+	/**
+	 * Optimized images with a WebP version of their attached file, newest first.
+	 *
+	 * @param int $limit Most IDs to return.
+	 * @return int[] Attachment IDs.
+	 */
+	private static function sample_ids( $limit ) {
+		$ids   = get_posts(
 			array(
 				'post_type'      => 'attachment',
 				'post_status'    => 'any',
 				'post_mime_type' => self::MIME_TYPES,
 				'fields'         => 'ids',
-				'posts_per_page' => 20,
+				'posts_per_page' => max( 20, 2 * $limit ),
 				'no_found_rows'  => true,
 				'orderby'        => 'ID',
 				'order'          => 'DESC',
@@ -503,13 +548,17 @@ final class Images {
 				'meta_value'     => 'optimized', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
 			)
 		);
+		$found = array();
 		foreach ( $ids as $id ) {
 			if ( file_exists( self::sidecar( (string) get_attached_file( $id ), 'webp' ) ) ) {
-				return (int) $id;
+				$found[] = (int) $id;
+				if ( count( $found ) >= $limit ) {
+					break;
+				}
 			}
 		}
 
-		return 0;
+		return $found;
 	}
 
 	/**

@@ -80,6 +80,12 @@ In WordPress: **Settings → JCORE Pakkaus → Settings → WebP delivery → Ch
 and reports what came back. The site has to be able to reach its own URL, as for Site Health's loopback
 test.
 
+The **WebP test** tab on the same screen checks from your own browser instead, through any CDN or
+proxy in front of the site: it loads a few recently optimized images (the full size and one resized
+copy each) and shows per file what the browser got, what a browser without WebP support gets, and
+whether `Vary: Accept` is sent. Uploads served from another domain need CORS headers for it to see the
+response headers.
+
 By hand, with an image that has a `.webp` version:
 
 ```sh
