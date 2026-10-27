@@ -4,7 +4,7 @@ Tags: video, image, webp, compression, optimization
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.5.0
+Stable tag: 2.6.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,7 +89,16 @@ The settings and the job state are removed. Optimized files, WebP versions, back
 
 == Changelog ==
 
-= 2.5.0 (2026-10-20) =
+= 2.6.0 (2026-10-27) =
+
+* Feature: plugin - add WebP test tab for browser-side delivery checks
+* Fix: service - contact only public addresses and share queues fairly
+* Fix: plugin - only touch stored files in the attachment's own folder
+* Documentation: security audit of v2.5.0
+* Maintenance: deps - update the service's OpenTelemetry to 1.45.1
+* Maintenance: deps - update build tools past new high-severity advisories
+
+= v2.5.0 (2026-10-20) =
 
 * Feature: plugin - optimize images with WebP versions and smaller PNGs
 * Feature: service - optimize images on their own queue
