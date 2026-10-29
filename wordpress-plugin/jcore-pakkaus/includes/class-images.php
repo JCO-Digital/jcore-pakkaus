@@ -127,8 +127,8 @@ final class Images {
 
 	/**
 	 * Download an image job's results and put them in place: WebP versions next to the files, smaller PNG
-	 * files over the originals. Everything is downloaded before anything is moved, so a failed download
-	 * leaves the files as they were and can be retried.
+	 * files over the originals. Everything is downloaded, a few files at a time, before anything is moved,
+	 * so a failed download leaves the files as they were and can be retried.
 	 *
 	 * @param int   $id  Attachment ID.
 	 * @param array $job Completed job.
@@ -147,7 +147,6 @@ final class Images {
 		foreach ( array_values( $sent ) as $index => $file ) {
 			$result = is_array( $results[ $index ] ) ? $results[ $index ] : array();
 			if ( ( $result['name'] ?? null ) !== $file['name'] || ! self::is_own_file( $file['file'] ?? '', $id ) ) {
-				self::discard( $staged );
 				return new \WP_Error( 'jcore_pakkaus_files_mismatch', __( 'The optimized files do not match the files that were sent.', 'jcore-pakkaus' ) );
 			}
 
@@ -181,33 +180,46 @@ final class Images {
 					continue;
 				}
 
-				$tmp        = dirname( $path ) . '/.jcore-pakkaus-' . $id . '-' . wp_generate_password( 8, false ) . '.part';
-				$downloaded = Client::download_image_output( $job['id'], $index, $variant, $tmp );
-				if ( is_wp_error( $downloaded ) ) {
-					self::discard( $staged );
-					return $downloaded;
-				}
-
-				clearstatcache( true, $tmp );
-				$size     = (int) filesize( $tmp );
-				$expected = is_array( $info ) && isset( $info['size'] ) ? (int) $info['size'] : 0;
-				if ( ( $expected && $size !== $expected ) || ! self::looks_like( $tmp, 'optimized' === $variant ? 'png' : $variant ) ) {
-					wp_delete_file( $tmp );
-					self::discard( $staged );
-					return new \WP_Error( 'jcore_pakkaus_download_retry', __( 'A downloaded image is incomplete or not in the expected format.', 'jcore-pakkaus' ) );
-				}
-
 				$staged[] = array(
-					'tmp'     => $tmp,
-					'path'    => $path,
-					'variant' => $variant,
-					'size'    => $size,
-					'record'  => count( $records ),
+					'index'    => $index,
+					'tmp'      => dirname( $path ) . '/.jcore-pakkaus-' . $id . '-' . wp_generate_password( 8, false ) . '.part',
+					'path'     => $path,
+					'variant'  => $variant,
+					'expected' => is_array( $info ) && isset( $info['size'] ) ? (int) $info['size'] : 0,
+					'record'   => count( $records ),
 				);
 			}
 
 			$record['done'] = true;
 			$records[]      = $record;
+		}
+
+		$downloads = Client::download_image_outputs(
+			$job['id'],
+			array_map(
+				static function ( $item ) {
+					return array(
+						'index'   => $item['index'],
+						'variant' => $item['variant'],
+						'dest'    => $item['tmp'],
+					);
+				},
+				$staged
+			)
+		);
+		foreach ( $staged as $key => $item ) {
+			if ( is_wp_error( $downloads[ $key ] ) ) {
+				self::discard( $staged );
+				return $downloads[ $key ];
+			}
+
+			clearstatcache( true, $item['tmp'] );
+			$size = (int) filesize( $item['tmp'] );
+			if ( ( $item['expected'] && $size !== $item['expected'] ) || ! self::looks_like( $item['tmp'], 'optimized' === $item['variant'] ? 'png' : $item['variant'] ) ) {
+				self::discard( $staged );
+				return new \WP_Error( 'jcore_pakkaus_download_retry', __( 'A downloaded image is incomplete or not in the expected format.', 'jcore-pakkaus' ) );
+			}
+			$staged[ $key ]['size'] = $size;
 		}
 
 		foreach ( $staged as $item ) {

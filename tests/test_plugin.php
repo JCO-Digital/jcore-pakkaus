@@ -15,6 +15,7 @@ define( 'ABSPATH', $test_dir . '/' );
 define( 'DB_NAME', 'tests' );
 define( 'JCORE_PAKKAUS_VERSION', 'test' );
 define( 'MINUTE_IN_SECONDS', 60 );
+define( 'WPINC', 'wp-includes' );
 
 class WP_Error {
 	private $code;
@@ -33,17 +34,24 @@ class WP_Error {
 class Test_DB {
 	public $prefix = 'wp_';
 	public $available = true;
-	public $held = false;
-	public function prepare( $sql, ...$args ) { return $sql; }
+	public $held = array();
+	public $taken = array(); // Locks other requests hold.
+	public function prepare( $sql, ...$args ) { return vsprintf( str_replace( '%s', "'%s'", $sql ), $args ); }
 	public function get_var( $sql ) {
-		check( ! $this->held, 'Mutex must not be acquired recursively' );
-		if ( ! $this->available ) { return '0'; }
-		$this->held = true;
+		$name = self::name( $sql );
+		check( ! isset( $this->held[ $name ] ), 'Mutex must not be acquired recursively' );
+		if ( ! $this->available || in_array( $name, $this->taken, true ) ) { return '0'; }
+		$this->held[ $name ] = true;
 		return '1';
 	}
 	public function query( $sql ) {
-		check( $this->held, 'Mutex must be held when released' );
-		$this->held = false;
+		$name = self::name( $sql );
+		check( isset( $this->held[ $name ] ), 'Mutex must be held when released' );
+		unset( $this->held[ $name ] );
+	}
+	private static function name( $sql ) {
+		check( 1 === preg_match( "/_LOCK\\('([^']+)'/", $sql, $match ), 'Unexpected query: ' . $sql );
+		return $match[1];
 	}
 }
 $wpdb = new Test_DB();
@@ -117,14 +125,36 @@ function wp_remote_get( $url, $args ) {
 	file_put_contents( $args['filename'], $bytes );
 	return array( 'code' => $GLOBALS['download'], 'body' => '' );
 }
+/** Requests::request_multiple(): fetches like wp_remote_get() above, and remembers how many went at once. */
+function request_multiple( $requests ) {
+	$GLOBALS['batches'][] = count( $requests );
+	$responses = array();
+	foreach ( $requests as $key => $request ) {
+		check( false !== strpos( $request['options']['verify'], 'ca-bundle.crt' ), 'TLS certificates not checked' );
+		if ( is_wp_error( $GLOBALS['download'] ) ) {
+			$responses[ $key ] = new WpOrg\Requests\Exception( $GLOBALS['download']->get_error_message() );
+			continue;
+		}
+		preg_match( '#/files/(\d+)/(\w+)$#', $request['url'], $match );
+		$key_name = $match[1] . '/' . $match[2];
+		$response = new WpOrg\Requests\Response();
+		$response->status_code = $GLOBALS['fail_download'][ $key_name ] ?? $GLOBALS['download'];
+		// Like Requests, the body of an error response is written to the file too.
+		file_put_contents( $request['options']['filename'], 200 === $response->status_code ? $GLOBALS['image_outputs'][ $key_name ] : 'error' );
+		$responses[ $key ] = $response;
+	}
+	return $responses;
+}
+class WP_HTTP_Proxy { public function is_enabled() { return false; } }
+eval( 'namespace WpOrg\\Requests; class Response { public $status_code; } class Exception extends \\Exception {} class Requests { public static function request_multiple( $requests ) { return \\request_multiple( $requests ); } }' );
 function wp_remote_retrieve_response_code( $response ) { return $response['code']; }
 function wp_remote_retrieve_body( $response ) { return $response['body']; }
 function wp_remote_retrieve_response_message( $response ) { return 'HTTP error'; }
-function wp_next_scheduled( $hook ) { return isset( $GLOBALS['scheduled'][ $hook ] ) ? 1 : false; }
-function wp_schedule_event( $time, $schedule, $hook ) { $GLOBALS['scheduled'][ $hook ] = true; }
-function wp_schedule_single_event( $time, $hook, $args ) { $GLOBALS['scheduled'][ $hook ] = true; }
+function wp_next_scheduled( $hook ) { return isset( $GLOBALS['scheduled'][ $hook ] ) ? (int) $GLOBALS['scheduled'][ $hook ] : false; }
+function wp_schedule_event( $time, $schedule, $hook ) { $GLOBALS['scheduled'][ $hook ] = $time; }
+function wp_schedule_single_event( $time, $hook, $args ) { $GLOBALS['scheduled'][ $hook ] = $time; }
 function wp_clear_scheduled_hook( $hook ) { unset( $GLOBALS['scheduled'][ $hook ] ); }
-function spawn_cron() {}
+function spawn_cron() { $GLOBALS['spawned'] = true; }
 function get_attached_file( $id ) { return isset( $GLOBALS['attached'][ $id ] ) ? $GLOBALS['attached'][ $id ] : $GLOBALS['original']; }
 function get_post_field( $field, $id, $context = 'display' ) { return isset( $GLOBALS['titles'][ $id ] ) ? $GLOBALS['titles'][ $id ] : ''; }
 function get_post_mime_type( $id ) { return isset( $GLOBALS['mime'][ $id ] ) ? $GLOBALS['mime'][ $id ] : 'video/mp4'; }
@@ -196,6 +226,9 @@ function reset_fixture() {
 	$GLOBALS['deleted'] = array();
 	$GLOBALS['requested'] = array();
 	$GLOBALS['scheduled'] = array();
+	$GLOBALS['spawned'] = false;
+	$GLOBALS['batches'] = array();
+	$GLOBALS['wpdb']->taken = array();
 	$GLOBALS['actions'] = array();
 	$GLOBALS['settings'] = array( 'service_url' => 'https://optimizer.test', 'api_token' => 'token' );
 	$GLOBALS['original'] = $GLOBALS['test_dir'] . '/video.mp4';
@@ -301,6 +334,28 @@ $tests = array(
 		Processor::finalize( 1, array( 'id' => 'job-1', 'status' => 'skipped', 'input' => array(), 'output' => array() ) );
 		check( 'skipped' === Processor::status( 1 ), 'Skipped status not applied' );
 		check( array( 'job-1' ) === $GLOBALS['deleted'], 'Skipped job not cleaned up' );
+	},
+	'results wait for a free download slot' => static function () {
+		$slots = array( 'tests.wp_jcore_pakkaus_finalize_1', 'tests.wp_jcore_pakkaus_finalize_2' );
+		$GLOBALS['wpdb']->taken = $slots;
+		check( null === Processor::finalize( 1, $GLOBALS['job'] ), 'Finalized without a free slot' );
+		check( 'processing' === Processor::status( 1 ) && 'job-1' === get_post_meta( 1, '_jcore_pakkaus_job_id', true ), 'Job not kept for later' );
+		check( file_get_contents( $GLOBALS['original'] ) === $GLOBALS['original_bytes'] && ! $GLOBALS['deleted'], 'Result downloaded without a slot' );
+		check( isset( $GLOBALS['scheduled']['jcore_pakkaus_poll'] ), 'Polling not scheduled for the waiting result' );
+		$GLOBALS['wpdb']->taken = array( $slots[0] );
+		check( true === Processor::finalize( 1, $GLOBALS['job'] ), 'Second slot not used' );
+		check( 'optimized' === Processor::status( 1 ), 'Result not installed' );
+	},
+	'optimize all starts the poller without running it in the request' => static function () {
+		$GLOBALS['meta'][2] = array( '_jcore_pakkaus_status' => '', '_jcore_pakkaus_updated' => 1 );
+		Processor::enqueue( 2 );
+		check( $GLOBALS['scheduled']['jcore_pakkaus_poll'] > time(), 'Fixture: poll not due later' );
+		Processor::poll_soon();
+		check( $GLOBALS['scheduled']['jcore_pakkaus_poll'] <= time() && $GLOBALS['spawned'], 'Poller not started now' );
+		check( ! $GLOBALS['requested'] && ! $GLOBALS['bodies'] && 'pending' === Processor::status( 2 ), 'The request contacted the service' );
+		$GLOBALS['scheduled']['jcore_pakkaus_poll'] = 1;
+		Processor::poll_soon();
+		check( 1 === $GLOBALS['scheduled']['jcore_pakkaus_poll'], 'A due poll was pushed back' );
 	},
 	'unavailable mutex prevents applying job state' => static function () {
 		$GLOBALS['wpdb']->available = false;
@@ -411,6 +466,26 @@ $tests = array(
 		unset( $GLOBALS['fail_download']['1/webp'] );
 		check( true === Processor::finalize( 5, $job ), 'Retry did not succeed' );
 		check( file_exists( $dir . '/logo-150x150.png.webp' ), 'Retry did not install' );
+	},
+	'image results download a few at a time' => static function () {
+		$job = image_fixture();
+		check( true === Processor::finalize( 5, $job ), 'Install failed' );
+		check( array( 3 ) === $GLOBALS['batches'], 'Results not fetched together: ' . json_encode( $GLOBALS['batches'] ) );
+		$GLOBALS['batches'] = array();
+		$downloads = array();
+		for ( $n = 0; $n < 8; $n++ ) {
+			$GLOBALS['image_outputs'][ $n . '/webp' ] = webp_bytes( 'file ' . $n );
+			$downloads[ 'file-' . $n ] = array( 'index' => $n, 'variant' => 'webp', 'dest' => $GLOBALS['test_dir'] . '/.many-' . $n . '.part' );
+		}
+		$GLOBALS['fail_download']['7/webp'] = 404;
+		$results = Jcore\Pakkaus\Client::download_image_outputs( 'img-1', $downloads );
+		check( array( 6, 2 ) === $GLOBALS['batches'], 'Not limited to six at a time: ' . json_encode( $GLOBALS['batches'] ) );
+		check( array_keys( $downloads ) === array_keys( $results ), 'Results not under the downloads\' keys' );
+		check( true === $results['file-6'] && webp_bytes( 'file 6' ) === file_get_contents( $downloads['file-6']['dest'] ), 'Download not saved' );
+		check( 'jcore_pakkaus_download_failed' === $results['file-7']->get_error_code() && ! file_exists( $downloads['file-7']['dest'] ), 'Failed download kept' );
+		$GLOBALS['download'] = new WP_Error( 'http_request_failed', 'timed out' );
+		$results = Jcore\Pakkaus\Client::download_image_outputs( 'img-1', array( $downloads['file-0'] ) );
+		check( 'jcore_pakkaus_download_retry' === $results[0]->get_error_code(), 'Connection error not retried' );
 	},
 	'a file changed during optimization is left alone' => static function () {
 		$job = image_fixture();

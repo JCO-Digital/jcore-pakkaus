@@ -140,11 +140,12 @@ final class Library {
 	/**
 	 * IDs of the attachments that have never been sent to the optimizer.
 	 *
-	 * @param string $type `video` or `image`.
+	 * @param string $type  `video` or `image`.
+	 * @param int    $limit Max results, or -1 for all.
 	 *
 	 * @return int[]
 	 */
-	public static function new_ids( string $type = 'video' ): array {
+	public static function new_ids( string $type = 'video', int $limit = -1 ): array {
 		return array_map(
 			'intval',
 			get_posts(
@@ -153,7 +154,7 @@ final class Library {
 					'post_status'    => 'any',
 					'post_mime_type' => self::mime_types( $type ),
 					'fields'         => 'ids',
-					'posts_per_page' => -1,
+					'posts_per_page' => $limit,
 					'no_found_rows'  => true,
 					'orderby'        => 'ID',
 					'order'          => 'ASC',

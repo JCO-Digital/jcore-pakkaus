@@ -23,6 +23,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 abstract class Library_Controller extends Controller {
 
 	/**
+	 * Attachments "optimize all" marks per request at most, and for how many seconds; the app calls again
+	 * until it's done, so a large library doesn't run into the request's time limit.
+	 */
+	private const BULK_BATCH   = 500;
+	private const BULK_SECONDS = 10;
+
+	/**
 	 * Media type the routes cover: `video` or `image`.
 	 *
 	 * @var string
@@ -127,6 +134,7 @@ abstract class Library_Controller extends Controller {
 	/**
 	 * POST /videos/optimize-all, /images/optimize-all — marks every attachment
 	 * never sent to the optimizer for the poller to submit, a batch a minute.
+	 * A large library is marked over several requests: `more` says to call again.
 	 *
 	 * @param \WP_REST_Request $request The REST request.
 	 *
@@ -140,19 +148,32 @@ abstract class Library_Controller extends Controller {
 			return Conflicts::error();
 		}
 
-		$queued = 0;
-		foreach ( Library::new_ids( $this->type ) as $id ) {
+		$ids      = Library::new_ids( $this->type, self::BULK_BATCH );
+		$deadline = microtime( true ) + self::BULK_SECONDS;
+		$queued   = 0;
+		$stopped  = false;
+		foreach ( $ids as $id ) {
+			if ( microtime( true ) > $deadline ) {
+				$stopped = true;
+				break;
+			}
 			if ( Processor::enqueue( $id ) ) {
 				++$queued;
 			}
 		}
 
 		if ( $queued ) {
-			// Start the first batch now instead of waiting a minute for WP-Cron.
-			Processor::poll();
+			// Start the first batch now instead of in a minute, without making this request wait for it.
+			Processor::poll_soon();
 		}
 
-		return rest_ensure_response( array( 'queued' => $queued ) );
+		return rest_ensure_response(
+			array(
+				'queued' => $queued,
+				// Nothing marked means whatever is left can't be, so calling again wouldn't end.
+				'more'   => $queued > 0 && ( $stopped || count( $ids ) === self::BULK_BATCH ),
+			)
+		);
 	}
 
 	/**
