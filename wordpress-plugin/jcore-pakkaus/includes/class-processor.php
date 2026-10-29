@@ -51,6 +51,8 @@ final class Processor {
 	private const IMAGE_POLL_BATCH = 100;
 	// Stop starting new work after this long, so a poll run stays within a request's time limit.
 	private const POLL_SECONDS = 40;
+	// How many results may be downloading at once, site-wide; the rest wait for the poller.
+	private const FINALIZE_SLOTS = 2;
 
 	/**
 	 * True while the plugin regenerates attachment metadata itself, so the upload hook doesn't fire again.
@@ -601,11 +603,11 @@ final class Processor {
 					'message'  => __( 'Downloading the optimized file…', 'jcore-pakkaus' ),
 				)
 			);
-			wp_schedule_single_event( time(), self::CRON_FINALIZE, array( (int) $id ) );
 		} finally {
 			self::unlock( $id );
 		}
 
+		// Whatever doesn't get a download slot is left to the poller, which is running while jobs are in flight.
 		if ( function_exists( 'fastcgi_finish_request' ) ) {
 			add_action(
 				'shutdown',
@@ -615,6 +617,7 @@ final class Processor {
 				}
 			);
 		} else {
+			wp_schedule_single_event( time(), self::CRON_FINALIZE, array( (int) $id ) );
 			spawn_cron();
 		}
 	}
@@ -624,7 +627,7 @@ final class Processor {
 	 *
 	 * @param int        $id  Attachment ID.
 	 * @param array|null $job Job data if already fetched.
-	 * @return true|\WP_Error|null Null when there was nothing to do.
+	 * @return true|\WP_Error|null Null when there was nothing to do, or no download slot was free.
 	 */
 	public static function finalize( $id, $job = null ) {
 		$id = (int) $id;
@@ -632,6 +635,7 @@ final class Processor {
 			return null;
 		}
 
+		$slot = null;
 		try {
 			wp_cache_delete( $id, 'post_meta' );
 			if ( ! in_array( self::status( $id ), self::RUNNING, true ) ) {
@@ -651,6 +655,13 @@ final class Processor {
 			}
 			if ( 'completed' !== $job['status'] ) {
 				self::apply_job_state( $id, $job );
+				return null;
+			}
+
+			// The result stays on the service until a slot is free; the poller tries again.
+			$slot = self::finalize_slot();
+			if ( null === $slot ) {
+				self::ensure_polling();
 				return null;
 			}
 
@@ -700,6 +711,9 @@ final class Processor {
 
 			return true;
 		} finally {
+			if ( null !== $slot ) {
+				self::release_lock( $slot );
+			}
 			self::unlock( $id );
 		}
 	}
@@ -1064,6 +1078,18 @@ final class Processor {
 	}
 
 	/**
+	 * Have WP-Cron run the poller now, in a request of its own, instead of in a minute.
+	 */
+	public static function poll_soon() {
+		$next = wp_next_scheduled( self::CRON_POLL );
+		if ( ! $next || $next > time() ) {
+			wp_clear_scheduled_hook( self::CRON_POLL );
+			wp_schedule_event( time(), self::SCHEDULE, self::CRON_POLL );
+		}
+		spawn_cron();
+	}
+
+	/**
 	 * Regenerate attachment metadata (duration, dimensions, filesize, ...).
 	 *
 	 * @param int $id Attachment ID.
@@ -1164,9 +1190,7 @@ final class Processor {
 	 * @return bool
 	 */
 	private static function lock( $id ) {
-		global $wpdb;
-		$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', self::lock_name( $id ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		return null === $result || '1' === (string) $result; // null: GET_LOCK unsupported (e.g. SQLite).
+		return self::get_lock( self::lock_name( $id ) );
 	}
 
 	/**
@@ -1175,14 +1199,51 @@ final class Processor {
 	 * @param int $id Attachment ID.
 	 */
 	private static function unlock( $id ) {
+		self::release_lock( self::lock_name( $id ) );
+	}
+
+	/**
+	 * Take one of the slots for downloading results. Every finished job of a bulk run calls back at once, and
+	 * each download holds a PHP worker until it's done; the slots keep the rest of them free for visitors.
+	 *
+	 * @return string|null The slot's lock name, or null when every slot is taken.
+	 */
+	private static function finalize_slot() {
+		for ( $slot = 1; $slot <= self::FINALIZE_SLOTS; ++$slot ) {
+			$name = self::lock_name( 'finalize_' . $slot );
+			if ( self::get_lock( $name ) ) {
+				return $name;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Take a named MySQL lock without waiting.
+	 *
+	 * @param string $name Lock name.
+	 * @return bool
+	 */
+	private static function get_lock( $name ) {
 		global $wpdb;
-		$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', self::lock_name( $id ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return null === $result || '1' === (string) $result; // null: GET_LOCK unsupported (e.g. SQLite).
+	}
+
+	/**
+	 * Release a named MySQL lock.
+	 *
+	 * @param string $name Lock name.
+	 */
+	private static function release_lock( $name ) {
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	}
 
 	/**
 	 * Lock name.
 	 *
-	 * @param int $id Attachment ID.
+	 * @param int|string $id Attachment ID, or another name in the plugin's lock space.
 	 * @return string
 	 */
 	private static function lock_name( $id ) {

@@ -16,6 +16,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Client {
 
+	// Image results downloaded at once; more would only crowd the service while it optimizes other images.
+	private const PARALLEL_DOWNLOADS = 6;
+
 	/**
 	 * Perform a request against the service and decode the JSON response.
 	 *
@@ -143,16 +146,75 @@ final class Client {
 	}
 
 	/**
-	 * Stream one result of an image job to disk.
+	 * Stream results of an image job to disk, a few at a time: one by one, an image with many sizes holds
+	 * a PHP worker for a request per file.
 	 *
-	 * @param string $job_id  Job ID.
-	 * @param int    $index   Position of the file in the job.
-	 * @param string $variant `optimized`, or a format such as `webp`.
-	 * @param string $dest    Destination path.
-	 * @return true|\WP_Error
+	 * Each download names the file's position in the job (`index`), `optimized` or a format such as `webp`
+	 * (`variant`), and the destination path (`dest`).
+	 *
+	 * @param string $job_id    Job ID.
+	 * @param array  $downloads Files to fetch.
+	 * @return array<array-key, true|\WP_Error> Results under the downloads' keys. Errors worth retrying have the
+	 *                                          code jcore_pakkaus_download_retry.
 	 */
-	public static function download_image_output( $job_id, $index, $variant, $dest ) {
-		return self::download( '/jobs/' . rawurlencode( $job_id ) . '/files/' . (int) $index . '/' . rawurlencode( $variant ), $dest, 120 );
+	public static function download_image_outputs( $job_id, $downloads ) {
+		$results = array();
+		foreach ( array_chunk( $downloads, self::PARALLEL_DOWNLOADS, true ) as $batch ) {
+			$requests = array();
+			foreach ( $batch as $key => $download ) {
+				$url              = self::url( '/jobs/' . rawurlencode( $job_id ) . '/files/' . (int) $download['index'] . '/' . rawurlencode( $download['variant'] ) );
+				$requests[ $key ] = array(
+					'url'     => $url,
+					'headers' => array( 'Authorization' => 'Bearer ' . Settings::get( 'api_token' ) ),
+					'options' => array_merge( self::requests_options( $url, 120 ), array( 'filename' => $download['dest'] ) ),
+				);
+			}
+
+			foreach ( \WpOrg\Requests\Requests::request_multiple( $requests ) as $key => $response ) {
+				if ( $response instanceof \WpOrg\Requests\Response && 200 === (int) $response->status_code ) {
+					$results[ $key ] = true;
+					continue;
+				}
+				wp_delete_file( $batch[ $key ]['dest'] );
+				$results[ $key ] = $response instanceof \WpOrg\Requests\Response
+					? self::download_error( (int) $response->status_code )
+					: new \WP_Error( 'jcore_pakkaus_download_retry', $response instanceof \Throwable ? $response->getMessage() : __( 'The download failed.', 'jcore-pakkaus' ) );
+			}
+		}
+		return $results;
+	}
+
+	/**
+	 * Requests options matching what the WordPress HTTP API would use for a GET: its CA bundle, the
+	 * `https_ssl_verify` filter, and the configured proxy.
+	 *
+	 * @param string $url     URL.
+	 * @param int    $timeout Seconds.
+	 * @return array
+	 */
+	private static function requests_options( $url, $timeout ) {
+		/** This filter is documented in wp-includes/class-wp-http.php */
+		$verify  = apply_filters( 'https_ssl_verify', true, $url ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- the core filter, applied as WP_Http does.
+		$options = array(
+			'timeout'          => $timeout,
+			'connect_timeout'  => $timeout,
+			'useragent'        => 'jcore-pakkaus/' . JCORE_PAKKAUS_VERSION . '; ' . home_url( '/' ),
+			'redirects'        => 5,
+			'follow_redirects' => true,
+			'verify'           => $verify ? ABSPATH . WPINC . '/certificates/ca-bundle.crt' : false,
+		);
+
+		$proxy = new \WP_HTTP_Proxy();
+		if ( $proxy->is_enabled() && $proxy->send_through_proxy( $url ) ) {
+			$options['proxy'] = new \WpOrg\Requests\Proxy\Http( $proxy->host() . ':' . $proxy->port() );
+			if ( $proxy->use_authentication() ) {
+				$options['proxy']->use_authentication = true;
+				$options['proxy']->user               = $proxy->username();
+				$options['proxy']->pass               = $proxy->password();
+			}
+		}
+
+		return $options;
 	}
 
 	/**
@@ -182,13 +244,23 @@ final class Client {
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 !== $code ) {
 			wp_delete_file( $dest );
-			return new \WP_Error(
-				$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'jcore_pakkaus_download_retry' : 'jcore_pakkaus_download_failed',
-				/* translators: %d: HTTP status code */
-				sprintf( __( 'Downloading the optimized file failed with HTTP %d.', 'jcore-pakkaus' ), $code )
-			);
+			return self::download_error( $code );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Error for a download the service answered with something other than 200.
+	 *
+	 * @param int $code HTTP status code.
+	 * @return \WP_Error Errors worth retrying have the code jcore_pakkaus_download_retry.
+	 */
+	private static function download_error( $code ) {
+		return new \WP_Error(
+			$code >= 500 || in_array( $code, array( 408, 409, 425, 429 ), true ) ? 'jcore_pakkaus_download_retry' : 'jcore_pakkaus_download_failed',
+			/* translators: %d: HTTP status code */
+			sprintf( __( 'Downloading the optimized file failed with HTTP %d.', 'jcore-pakkaus' ), $code )
+		);
 	}
 }

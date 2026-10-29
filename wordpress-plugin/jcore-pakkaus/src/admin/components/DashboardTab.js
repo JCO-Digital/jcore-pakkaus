@@ -242,8 +242,18 @@ export default function DashboardTab( {
 	const runOptimizeAll = async () => {
 		setIsBulkBusy( true );
 		try {
-			const { queued } = await optimizeAll( media.type );
-			createSuccessNotice( media.queued( queued ), {
+			// A large library is queued over several requests, so none runs into a timeout.
+			let total = 0;
+			let more = true;
+			while ( more ) {
+				const result = await optimizeAll( media.type );
+				total += result.queued;
+				more = result.more;
+				if ( more ) {
+					load( { quiet: true } );
+				}
+			}
+			createSuccessNotice( media.queued( total ), {
 				type: 'snackbar',
 			} );
 		} catch ( caught ) {
