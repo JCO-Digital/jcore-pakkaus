@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -98,13 +99,15 @@ async def detect_capabilities() -> Capabilities:
 
 
 def _ratio(value: str | None) -> float | None:
-    if not value or value in ("0/0", "N/A"):
+    """Parse an ffprobe ratio: frame rates use `/` (30000/1001), aspect ratios use `:` (16:11)."""
+    if not value or value in ("0/0", "0:0", "N/A"):
         return None
-    num, _, den = value.partition("/")
+    num, _, den = value.replace(":", "/").partition("/")
     try:
-        return float(num) / float(den or 1)
+        ratio = float(num) / float(den or 1)
     except (ValueError, ZeroDivisionError):
         return None
+    return ratio if math.isfinite(ratio) and ratio > 0 else None
 
 
 def _rotation(stream: dict) -> int:

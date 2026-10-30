@@ -23,7 +23,8 @@ mocked), CSRF checks, API key hashing and revocation, per-key job isolation, and
 outlives expired jobs. Image tests cover the JPEG/PNG-only decoder allowlist, the pixel limit,
 EXIF orientation, colour profiles, transparency and CMYK in WebP versions, pixel-exact lossless PNG
 recompression, pngquant (skipped when it isn't installed), per-file failures that don't sink the
-other files, and the image job API. Media tests skip when FFmpeg is unavailable locally;
+other files, and the image job API. Probe tests cover ffprobe ratios in both notations (`30000/1001`
+frame rates, `16:11` sample aspect ratios) and that anamorphic video is widened to its display size. Media tests skip when FFmpeg is unavailable locally;
 CI also runs the suite inside the production image, where FFmpeg is installed.
 The PHP suite runs the actual plugin classes with WordPress HTTP, metadata-cache, and mutex
 test doubles. It checks stale responses, poll fairness, retry followed by successful file
