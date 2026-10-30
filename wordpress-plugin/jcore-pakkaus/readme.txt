@@ -4,7 +4,7 @@ Tags: video, image, webp, compression, optimization
 Requires at least: 6.7
 Tested up to: 7.1
 Requires PHP: 8.2
-Stable tag: 2.6.1
+Stable tag: 2.6.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,7 +89,11 @@ The settings and the job state are removed. Optimized files, WebP versions, back
 
 == Changelog ==
 
-= 2.6.1 (2026-10-29) =
+= 2.6.2 (2026-10-30) =
+
+* Fix: service - read colon-separated sample aspect ratios
+
+= v2.6.1 (2026-10-29) =
 
 * Fix: plugin - keep bulk optimizing from tying up PHP workers
 
